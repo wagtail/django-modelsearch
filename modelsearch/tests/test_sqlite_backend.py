@@ -3,11 +3,13 @@ import unittest
 
 from unittest import skip
 
+from django.contrib.contenttypes.models import ContentType
 from django.db import connection
 from django.test.testcases import TestCase
 from django.test.utils import override_settings
 
 from modelsearch.backends.database.sqlite.utils import fts5_available
+from modelsearch.models import IndexEntry
 from modelsearch.test.testapp import models
 from modelsearch.tests.test_backends import BackendTests
 
@@ -100,3 +102,17 @@ class TestSQLiteSearchBackend(BackendTests, TestCase):
         search_field = compiler.get_search_field("authors__name")
         self.assertIsNotNone(search_field)
         self.assertEqual(search_field.field_name, "name")
+
+    def test_index_entry_model(self):
+        book = models.Book.objects.get(title="Programming Rust")
+        ct = ContentType.objects.get_for_model(models.Book)
+        index_entry = IndexEntry.objects.get(object_id=book.id, content_type=ct)
+        self.assertEqual(index_entry.model, "book")
+        self.assertEqual(str(index_entry), "book: Programming Rust")
+
+        from modelsearch.models import SQLiteFTSIndexEntry
+
+        sqlite_fts_entry = SQLiteFTSIndexEntry.objects.get(index_entry=index_entry)
+        self.assertEqual(
+            str(sqlite_fts_entry), "SQLiteFTSIndexEntry: book: Programming Rust"
+        )

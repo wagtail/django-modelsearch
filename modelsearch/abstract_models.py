@@ -128,7 +128,7 @@ elif connection.vendor == "sqlite":
 
     AbstractIndexEntry = AbstractSQLiteIndexEntry
 
-    if fts5_available():
+    if fts5_available():  # pragma: no branch
 
         class AbstractSQLiteFTSIndexEntry(models.Model):
             autocomplete = TextField(null=True)  # NOQA: DJ001
@@ -158,5 +158,5 @@ elif connection.vendor == "mysql":
 
     AbstractIndexEntry = AbstractMySQLIndexEntry
 
-else:
+else:  # pragma: no cover
     AbstractIndexEntry = BaseIndexEntry

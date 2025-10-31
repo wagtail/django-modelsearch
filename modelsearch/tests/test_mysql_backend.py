@@ -2,10 +2,12 @@ import unittest
 
 from unittest import expectedFailure, skip
 
+from django.contrib.contenttypes.models import ContentType
 from django.db import connection
 from django.test.testcases import TransactionTestCase
 from django.test.utils import override_settings
 
+from modelsearch.models import IndexEntry
 from modelsearch.query import Not, PlainText
 from modelsearch.test.testapp import models
 from modelsearch.tests.test_backends import BackendTests
@@ -229,3 +231,10 @@ class TestMySQLSearchBackend(BackendTests, TransactionTestCase):
         search_field = compiler.get_search_field("authors__name")
         self.assertIsNotNone(search_field)
         self.assertEqual(search_field.field_name, "name")
+
+    def test_index_entry_model(self):
+        book = models.Book.objects.get(title="Programming Rust")
+        ct = ContentType.objects.get_for_model(models.Book)
+        index_entry = IndexEntry.objects.get(object_id=book.id, content_type=ct)
+        self.assertEqual(index_entry.model, "book")
+        self.assertEqual(str(index_entry), "book: Programming Rust")
