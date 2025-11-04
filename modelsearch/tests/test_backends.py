@@ -313,6 +313,8 @@ class BackendTests:
         )
 
     def test_search_all_unindexed(self):
+        self.backend.add_bulk(models.UnindexedBook, models.UnindexedBook.objects.all())
+        self.backend.refresh_indexes()
         # There should be no index entries for UnindexedBook
         results = self.backend.search(MATCH_ALL, models.UnindexedBook)
         self.assertEqual(results.count(), 0)
