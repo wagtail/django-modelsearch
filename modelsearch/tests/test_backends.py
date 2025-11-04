@@ -1369,6 +1369,9 @@ class BackendTests:
         results = self.backend.search("Fifty Shades", models.Book)
         self.assertEqual(results.count(), 3)
 
+    def test_add_bulk_empty_list(self):
+        self.backend.add_bulk(models.Book, [])
+
 
 @override_settings(
     MODELSEARCH_BACKENDS={
