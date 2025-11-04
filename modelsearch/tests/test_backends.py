@@ -748,6 +748,13 @@ class BackendTests:
         )
         self.assertEqual(len(results), 1)
 
+    def test_child_model_with_id_filter(self):
+        learning_python = models.ProgrammingGuide.objects.get(title="Learning Python")
+        results = self.backend.search(
+            "Python", models.ProgrammingGuide.objects.filter(id=learning_python.id)
+        )
+        self.assertEqual(set(results), {learning_python})
+
     # ORDER BY RELEVANCE
 
     def test_order_by_relevance_match_all(self):
