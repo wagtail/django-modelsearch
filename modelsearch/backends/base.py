@@ -158,7 +158,7 @@ class BaseSearchQueryCompiler:
                             return self._connect_filters(
                                 [filter1, filter2], "AND", False
                             )
-                    else:
+                    else:  # pragma: no cover
                         raise FilterError(
                             f'Cannot apply filter on search results: "{where_node.lhs.lookup_name}" queries are not supported.'
                         )
@@ -198,7 +198,7 @@ class BaseSearchQueryCompiler:
                     child_filters, connector, where_node.negated
                 )
 
-        else:
+        else:  # pragma: no cover
             raise FilterError(
                 f"Could not apply filter on search results: Unknown where node: {type(where_node)}"
             )
