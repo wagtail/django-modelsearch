@@ -492,26 +492,19 @@ class ElasticsearchBaseSearchQueryCompiler(BaseSearchQueryCompiler):
         column_name = self.mapping.get_field_column_name(field)
 
         if lookup == "exact":
-            if value is None:
-                return {
-                    "missing": {
-                        "field": column_name,
-                    }
-                }
-            else:
-                if isinstance(value, (Query, Subquery)):
-                    db_alias = self.queryset._db or DEFAULT_DB_ALIAS
-                    query = value.query if isinstance(value, Subquery) else value
-                    value = query.get_compiler(db_alias).execute_sql(result_type=SINGLE)
-                    # The result is either a tuple with one element or None
-                    if value:
-                        value = value[0]
+            if isinstance(value, (Query, Subquery)):
+                db_alias = self.queryset._db or DEFAULT_DB_ALIAS
+                query = value.query if isinstance(value, Subquery) else value
+                value = query.get_compiler(db_alias).execute_sql(result_type=SINGLE)
+                # The result is either a tuple with one element or None
+                if value:
+                    value = value[0]
 
-                return {
-                    "term": {
-                        column_name: self.mapping._clean_value(value),
-                    }
+            return {
+                "term": {
+                    column_name: self.mapping._clean_value(value),
                 }
+            }
 
         if lookup == "isnull":
             query = {
