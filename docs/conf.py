@@ -30,6 +30,7 @@ author = "Karl Hobley"
 extensions = [
     "myst_parser",
     "sphinx_rtd_theme",
+    "sphinx.ext.autodoc",
 ]
 
 # Add any paths that contain templates here, relative to this directory.

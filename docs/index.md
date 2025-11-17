@@ -10,6 +10,7 @@ indexing
 searching
 backends
 developing
+api
 ```
 
 ## Installation

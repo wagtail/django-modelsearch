@@ -40,11 +40,14 @@ class BaseSearchQueryCompiler:
     Represents a search query translated into an expression that the search backend can understand,
     incorporating the necessary filters, ordering, and other query parameters originating from
     either the search query or the queryset. No actual querying happens at the point of
-    instantiating this; that's initiated by the _do_search() or _do_count() methods of the
-    associated SearchResults object.
+    instantiating this; that happens when the associated :py:class:`BaseSearchResults` object is evaluated.
     """
 
     DEFAULT_OPERATOR = "or"
+
+    #: Whether this query compiler can handle complex expressions in the ``order_by`` clause of the queryset,
+    #: such as ``F("title").asc(nulls_first=True)``. If true, the ``check()`` method will not raise an
+    #: exception when such expressions are encountered.
     HANDLES_ORDER_BY_EXPRESSIONS = False
 
     def __init__(
@@ -79,12 +82,33 @@ class BaseSearchQueryCompiler:
         return field
 
     def _process_lookup(self, field, lookup, value):
+        """
+        To be implemented by subclasses if they wish to call ``_get_filters_from_queryset`` with
+        ``check_only=False``. Returns the data structure corresponding to a filter lookup on an
+        individual field.
+
+        :param field: The ``FilterField`` instance for the field being filtered on.
+        :param lookup: The identifier for the type of lookup being performed, such as ``"exact"`` or ``"lt"``.
+        :param value: The lookup value.
+        """
         raise NotImplementedError
 
     def _process_match_none(self):
+        """
+        To be implemented by subclasses if they wish to call ``_get_filters_from_queryset`` with
+        ``check_only=False``. Returns the data structure corresponding to a lookup that returns an empty result set.
+        """
         raise NotImplementedError
 
     def _connect_filters(self, filters, connector, negated):
+        """
+        To be implemented by subclasses if they wish to call ``_get_filters_from_queryset`` with
+        ``check_only=False``. Returns the data structure corresponding to the combination of multiple filters.
+
+        :param filters: The data structures for the sub-expressions to be combined.
+        :param connector: The clause used to connect the filters - ``"AND"`` or ``"OR"``.
+        :param negated: Whether the final expression should be negated.
+        """
         raise NotImplementedError
 
     def _process_filter(self, field_attname, lookup, value, check_only=False):
@@ -109,6 +133,16 @@ class BaseSearchQueryCompiler:
             return result
 
     def _get_filters_from_where_node(self, where_node, check_only=False):
+        """
+        Internal method used by ``_get_filters_from_queryset`` to recursively validate a sub-expression of
+        the queryset's filter clause.
+
+        :param check_only: If ``True``, the method will simply return ``None`` if ``where_node`` and all sub-expressions
+          within it are valid.
+          If ``False``, the ``_process_lookup``, ``_process_match_none`` and ``_connect_filters`` methods must be
+          overridden; this method will then return the translated data structure obtained by applying these methods
+          to ``where_node``.
+        """
         # Check if this is a leaf node
         if isinstance(where_node, Lookup):
             if isinstance(where_node.lhs, ExtractDate):
@@ -204,11 +238,33 @@ class BaseSearchQueryCompiler:
             )
 
     def _get_filters_from_queryset(self, check_only=False):
+        """
+        Internal method used by ``check()`` to validate that all fields specified as filters on the queryset
+        exist as ``FilterField`` records on the model, and that all lookup clauses (such as ``__lt``) are recognised.
+        Backends may also use this to translate the filter clause into an alternative data structure for use during
+        searching.
+
+        :param check_only: If ``True``, the method will simply return ``None`` if no invalid filters are found.
+          If ``False``, the ``_process_lookup``, ``_process_match_none`` and ``_connect_filters`` methods must be
+          overridden; this method will then return the translated data structure obtained by applying these methods
+          to the queryset's filter clause.
+        """
         return self._get_filters_from_where_node(
             self.queryset.query.where, check_only=check_only
         )
 
     def _get_order_by(self):
+        """
+        Internal method used by ``check()`` to validate that all fields specified in the queryset's ``order_by``
+        clause exist as ``FilterField`` records on the model. Backends may also use this to construct the query to send
+        to the underlying search mechanism.
+
+        Returns an iterable sequence of ``(reverse, field)`` tuples where ``reverse`` is a boolean indicating whether
+        ordering on that field is reversed, and ``field`` is the ``FilterField`` instance. If
+        ``HANDLES_ORDER_BY_EXPRESSIONS`` is ``True``, complex expressions within the ``order_by`` clause are skipped
+        over; if ``False``, they raise an ``OrderByFieldError``.
+        """
+
         if self.order_by_relevance:
             return
 
@@ -239,6 +295,17 @@ class BaseSearchQueryCompiler:
             yield reverse, field
 
     def check(self):
+        """
+        Checks that the search query satisfies the following conditions:
+
+        1. All field names passed in the ``fields`` parameter exist as ``SearchField`` records on the model.
+        2. All fields used within filters on the passed ``queryset`` exist as ``FilterField`` records on the model.
+        3. The ``order_by`` clause on the passed ``queryset`` does not contain any expressions other than plain field
+           names and their reversed counterparts (``"some_field"`` and ``"-some_field"``), unless
+           ``HANDLES_ORDER_BY_EXPRESSIONS`` is ``True``.
+        4. All field names within the ``order_by`` clause on the passed ``queryset`` exist as ``FilterField`` records
+           on the model.
+        """
         # Check search fields
         if self.fields:
             allowed_fields = {
@@ -264,9 +331,13 @@ class BaseSearchQueryCompiler:
 
 class BaseSearchResults:
     """
-    A lazily-evaluated object representing the results of a search query. This emulates the
-    slicing behaviour of a Django QuerySet, but with the results not necessarily coming from
-    the database.
+    Represents the results of a search query. This emulates a Django QuerySet, but with the results not necessarily
+    coming from the database - the result set can be sliced to obtain a new SearchResults instance, and the search
+    is only actually performed when the results are iterated or evaluated as a list, or when the ``count()`` method
+    is called.
+
+    The process for performing a search is specific to each backend, and involves some division of work between
+    the search results class and the query compiler.
     """
 
     supports_facet = False
@@ -313,7 +384,8 @@ class BaseSearchResults:
 
     def _do_search(self):
         """
-        To be implemented by subclasses - performs the actual search query.
+        To be implemented by subclasses - performs the actual search query, returning an iterable
+        sequence of results.
         """
         raise NotImplementedError
 
@@ -401,10 +473,19 @@ class EmptySearchResults(BaseSearchResults):
 
 class BaseIndex:
     """
-    Manages some subset of objects in the data store.
-    The base class provides do-nothing implementations of the indexing operations. Use this
-    directly for search backends that do not maintain an index, such as the fallback database
-    backend. Subclass it for backends that need to do something.
+    The base class for all indexes.
+
+    An index manages the storage for some subset of objects in the backend's data store. A backend can work with either
+    a single index (as the database backends do) - in which case ``get_index_for_model`` and ``get_index_for_object``
+    will always return the same ``Index`` instance - or multiple indexes (as with the Elasticsearch backend, which
+    operates a separate index for each base model).
+
+    Partitioning objects across indexes by any criteria other than model is not currently supported - that is,
+    the backend's ``get_index_for_object`` method must always return a result that corresponds to
+    ``get_index_for_model`` for that object's type.
+
+    On the base class, all methods are null operations. This can be used directly for backends that do not need to
+    maintain their own data store (such as the fallback database backend, which queries the database directly).
     """
 
     def __init__(self, backend):
@@ -454,11 +535,35 @@ class BaseIndex:
 
 
 class BaseSearchBackend:
+    """
+    The base class for all search backends.
+
+    A backend is the entry point for all search and indexing functionality. Any request to index an
+    object for searching or to perform a search query will be directed at a backend.
+
+    The searching and indexing functionality is delegated to various helper classes, which are
+    specified as attributes on the backend class.
+    """
+
+    #: The :py:class:`BaseSearchQueryCompiler` subclass responsible for compiling whole-word search queries.
     query_compiler_class = None
+
+    #: The :py:class:`BaseSearchQueryCompiler` subclass responsible for compiling autocomplete (partial word) search queries.
     autocomplete_query_compiler_class = None
+
+    #: The :py:class:`BaseIndex` subclass responsible for managing the indexes for this backend.
     index_class = BaseIndex
+
+    #: The :py:class:`BaseSearchResults` subclass responsible for representing search results.
     results_class = None
+
+    #: The class responsible for rebuilding indexes for this backend. Can be ``None`` if the backend does not require
+    #: index rebuilding.
     rebuilder_class = None
+
+    #: Whether indexing errors should be caught and logged, rather than raised. Catching these errors is
+    #: appropriate for backends that use an external service such as Elasticsearch, where an interruption in
+    #: service should not bring down the whole application.
     catch_indexing_errors = False
 
     def __init__(self, params):
@@ -466,13 +571,17 @@ class BaseSearchBackend:
 
     def get_index_for_model(self, model):
         """
-        Returns the index to be used for the given model.
+        Returns the index to be used for the given model. The base implementation returns an instance of
+        ``self.index_class`` instantiated with no parameters other than the backend itself, which is
+        appropriate for backends that manage a single index. Backends that manage multiple indexes should
+        override this method to return the appropriate index for the model.
         """
         return self.index_class(self)
 
     def get_index_for_object(self, obj):
         """
-        Returns the index to be used for the given model instance.
+        Returns the index to be used for the given model instance. This is a convenience wrapper around
+        ``get_index_for_model``.
         """
         return self.get_index_for_model(obj._meta.model)
 
@@ -491,7 +600,8 @@ class BaseSearchBackend:
     def refresh_indexes(self):
         """
         Refreshes all indexes used by this backend. This performs any housekeeping required by the
-        index so that recently-updated data is visible to searches.
+        index so that recently-updated data is visible to searches. Not all backends require this -
+        for the ones that don't, this is a null operation.
         """
         for index in self.all_indexes():
             index.refresh()
@@ -522,6 +632,23 @@ class BaseSearchBackend:
         self.get_index_for_object(obj).delete_item(obj)
 
     def _search(self, query_compiler_class, query, model_or_queryset, **kwargs):
+        """
+        Internal method that handles both ``search()`` and ``autocomplete()`` queries, by receiving the appropriate
+        query compiler class to use. This performs the following steps:
+
+        - Normalises the ``model_or_queryset`` parameter into a queryset, using ``model.objects.all()`` if a model class
+          is provided.
+        - Short-circuits the query compiler if the model is not indexed or the query is an empty string, returning an
+          empty result set in these cases.
+        - Instantiates the query compiler with the queryset, query string, and any additional keyword arguments.
+        - Calls ``check()`` on the query compiler to validate the query.
+        - Returns a ``results_class`` instance, passing in the backend and the query compiler.
+
+        :param query_compiler_class: The :py:class:`BaseSearchQueryCompiler` subclass to use for compiling the query.
+        :param query: The search query string.
+        :param model_or_queryset: The model class or queryset to search within.
+        :param kwargs: Additional keyword arguments as passed to `search()` or `autocomplete()`, to pass on to the query compiler.
+        """
         # Find model/queryset
         if isinstance(model_or_queryset, QuerySet):
             model = model_or_queryset.model
@@ -556,6 +683,12 @@ class BaseSearchBackend:
     ):
         """
         Performs a whole-word search.
+
+        :param query: The search query string.
+        :param model_or_queryset: The model class or queryset to search within.
+        :param fields: An optional list of field names to restrict the search to.
+        :param operator: The operator to use when combining search terms (``"and"`` or ``"or"``).
+        :param order_by_relevance: Whether to order results by relevance.
         """
         return self._search(
             self.query_compiler_class,
@@ -576,6 +709,12 @@ class BaseSearchBackend:
     ):
         """
         Performs an autocomplete (partial word match) search.
+
+        :param query: The search query string.
+        :param model_or_queryset: The model class or queryset to search within.
+        :param fields: An optional list of field names to restrict the search to.
+        :param operator: The operator to use when combining search terms (``"and"`` or ``"or"``).
+        :param order_by_relevance: Whether to order results by relevance.
         """
         if self.autocomplete_query_compiler_class is None:
             raise NotImplementedError(
