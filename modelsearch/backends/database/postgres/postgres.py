@@ -1,3 +1,4 @@
+import re
 import warnings
 
 from collections import OrderedDict
@@ -384,7 +385,7 @@ class PostgresSearchQueryCompiler(BaseSearchQueryCompiler):
 
     def build_tsquery_content(self, query, config=None, invert=False):
         if isinstance(query, PlainText):
-            terms = query.query_string.split()
+            terms = re.split(r"[\s\-]+", query.query_string)
             if not terms:
                 return None
 
