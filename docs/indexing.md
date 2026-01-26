@@ -141,7 +141,7 @@ When searching the whole Pet index, all `SearchField`s will be searched, includi
 
 ### Implementing `get_indexed_instance`
 
-Django by itself has no way of telling us that a given instance of the root model (Pet) also has an instance of the (Dog). This is a problem because if a field on the root model is altered, Django ModelSearch will reindex it without the fields on the chil d model.
+Django by itself has no way of telling us that a given instance of the root model (Pet) also has an instance of the (Dog). This is a problem because if a field on the root model is altered, Django ModelSearch will reindex it without the fields on the child model.
 
 To resolve this, you can implement `get_indexed_instance()` on the root model. If the model has a child model instance, it should return the child. For example:
 

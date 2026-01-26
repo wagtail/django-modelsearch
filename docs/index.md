@@ -34,7 +34,7 @@ If you are using PostgreSQL, you must additionally add `django.contrib.postgres`
 
 ## Configuration
 
-Django Modelsearch indexes into database by default and it'll use the built-in full text search features of SQLite, MySQL, MariaDB and PostgreSQL with a fallback for other databases.
+Django Modelsearch indexes into database by default, and it'll use the built-in full text search features of SQLite, MySQL, MariaDB and PostgreSQL with a fallback for other databases.
 
 To configure an external server like Elasticsearch or OpenSearch, set the `MODELSEARCH_BACKENDS` setting in your Django settings:
 
@@ -100,8 +100,8 @@ class PersonQuerySet(SearchableQuerySetMixin, QuerySet):
     pass
 
 
-class Person(index.Indexed, models.Model);
-	# ...
+class Person(index.Indexed, models.Model):
+    # ...
 
     objects = PersonQuerySet.as_manager()
 

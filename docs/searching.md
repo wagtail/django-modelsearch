@@ -17,8 +17,8 @@ class PersonQuerySet(SearchableQuerySetMixin, QuerySet):
     pass
 
 
-class Person(index.Indexed, models.Model);
-	# ...
+class Person(index.Indexed, models.Model):
+    # ...
 
     objects = PersonQuerySet.as_manager()
 
@@ -56,7 +56,7 @@ stefan_zweig.books.search("The World of Yesterday")
 
 #### Fuzzy search
 
-Fuzzy search can help auto-correct mis-spelled queries:
+Fuzzy search can help autocorrect misspelled queries:
 
 ```python
 from modelsearch.query import Fuzzy
@@ -98,7 +98,7 @@ The search operator determines whether we need to match all terms in the query o
 - `AND` - Match all terms
 - `OR` - Match one or more terms
 
-By default Django Modelsearch searches with the `OR` operator. This helps if the user mis-spells a word in the query. Search ranking will ensure the best match always gets to the top.
+By default, Django Modelsearch searches with the `OR` operator. This helps if the user misspells a word in the query. Search ranking will ensure the best match always gets to the top.
 
 But if you don't want records that don't match the whole query to appear, you can switch to the `AND` operator instead:
 
@@ -131,7 +131,7 @@ There are a couple more:
 - `PlainText(query, operator='or')` - This is the default one
 - `Boost(query, boost)` - Boosts the wrapped query
 
-Query objects can be combined with `|` and `&` opreators. parentheses can be used as well to build complex structured queries:
+Query objects can be combined with `|` and `&` operators. parentheses can be used as well to build complex structured queries:
 
 ```python
 Book.objects.search(Boost(Phrase("War and Peace"), 2.0) | PlainText("War and Peace"))

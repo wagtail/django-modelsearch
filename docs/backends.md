@@ -39,7 +39,7 @@ If you have disabled auto-update, you must run the `rebuild_modelsearch_index` c
 
 By default (when using the Elasticsearch backend), Django Modelsearch creates a new index when the `rebuild_modelsearch_index` is run, reindexes the content into the new index then, using an alias, activates the new index. Then deletes the old index.
 
-If creating new indexes is not an option for you, you can disable this behaviour bu setting `ATOMIC_REBUILD` to `False`. This will make Django Modelsearch delete the index then build a new one. Note that this will cause the search engine to not return results until the rebuild is complete.
+If creating new indexes is not an option for you, you can disable this behaviour by setting `ATOMIC_REBUILD` to `False`. This will make Django Modelsearch delete the index then build a new one. Note that this will cause the search engine to not return results until the rebuild is complete.
 
 ## `BACKEND`
 
