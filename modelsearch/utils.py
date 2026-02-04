@@ -72,7 +72,7 @@ MUL = partial(balanced_reduce, operator.mul)
 
 MAX_QUERY_STRING_LENGTH = 255
 
-filters_regexp = re.compile(r'\b(\w+):(\w+|"[^"]+"|\'[^\']+\')')
+filters_regexp = re.compile(r'\b(\w+):([\w-]+|"[^"]+"|\'[^\']+\')')
 
 
 def normalise_query_string(query_string):
