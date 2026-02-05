@@ -58,6 +58,12 @@ class TestSeparateFiltersFromQuery(SimpleTestCase):
         self.assertDictEqual(filters.dict(), {})
         self.assertEqual(query, 'author:"foo bar hello world')
 
+    def test_filter_with_hyphen_in_value(self):
+        filters, query = separate_filters_from_query("slug:hello-world")
+
+        self.assertDictEqual(filters.dict(), {"slug": "hello-world"})
+        self.assertEqual(query, "")
+
     def test_two_filters_and_query(self):
         filters, query = separate_filters_from_query(
             'author:"foo bar" hello world bar:beer'
