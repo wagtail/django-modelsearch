@@ -4,16 +4,34 @@ import warnings
 from collections import OrderedDict
 from functools import reduce
 
-from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
+from django.contrib.postgres.search import (
+    SearchQuery,
+    SearchRank,
+    SearchVector,
+    TrigramWordSimilarity,
+)
 from django.db import (
     NotSupportedError,
+    ProgrammingError,
     connections,
     router,
     transaction,
 )
-from django.db.models import Avg, Count, F, Manager, TextField, Value
+from django.db.models import (
+    Avg,
+    Case,
+    Count,
+    F,
+    FloatField,
+    Func,
+    IntegerField,
+    Manager,
+    TextField,
+    Value,
+    When,
+)
 from django.db.models.constants import LOOKUP_SEP
-from django.db.models.functions import Cast, Length
+from django.db.models.functions import Cast, Greatest, Length
 from django.db.models.sql.subqueries import InsertQuery
 from django.utils.encoding import force_str
 from django.utils.functional import cached_property
@@ -21,7 +39,7 @@ from django.utils.functional import cached_property
 from modelsearch.conf import get_app_config
 
 from ....index import AutocompleteField, RelatedFields, SearchField, get_indexed_models
-from ....query import And, Boost, MatchAll, Not, Or, Phrase, PlainText
+from ....query import And, Boost, Fuzzy, MatchAll, Not, Or, Phrase, PlainText
 from ....utils import (
     ADD,
     MUL,
@@ -41,6 +59,78 @@ from .weights import get_sql_weights, get_weight
 
 IndexEntry = get_app_config().get_model("IndexEntry", require_ready=False)
 EMPTY_VECTOR = SearchVector(Value("", output_field=TextField()))
+
+DEFAULT_FUZZY_SIMILARITY_THRESHOLD = 0.3
+DEFAULT_FUZZY_PREFIX_BOOST = 0.0  # Multiplier bonus when field starts with query
+DEFAULT_FUZZY_ALGORITHM = "trigram"  # "trigram" or "levenshtein"
+
+
+class LevenshteinDistance(Func):
+    """PostgreSQL levenshtein() from fuzzystrmatch extension."""
+
+    function = "levenshtein"
+    output_field = IntegerField()
+
+
+class WordLevenshteinSimilarity(Func):
+    """
+    Word-level Levenshtein similarity for PostgreSQL.
+
+    Splits a text field into words and computes the normalized Levenshtein
+    similarity against the best matching word. This mirrors how
+    TrigramWordSimilarity compares against the best word/substring.
+
+    Returns a float between 0 and 1 (1 = exact word match).
+    """
+
+    # Split on whitespace and hyphens so "lave-vaisselle" is matched word by word
+    _split_pattern = "E'[\\\\s\\\\-]+'"
+    template = (
+        "(1.0 - ("  # noqa: S608
+        "SELECT MIN(levenshtein(SUBSTR(LOWER(word)::varchar(255), 1, 255), %(query)s))"
+        "::double precision"
+        " FROM unnest(regexp_split_to_array(%(field)s::text, "
+        + _split_pattern
+        + ")) AS word"
+        " WHERE LENGTH(word) > 0"
+        ") / GREATEST("
+        "(SELECT LENGTH(word)"
+        " FROM unnest(regexp_split_to_array(%(field)s::text, "
+        + _split_pattern
+        + ")) AS word"
+        " WHERE LENGTH(word) > 0"
+        " ORDER BY levenshtein(SUBSTR(LOWER(word)::varchar(255), 1, 255), %(query)s) ASC"
+        " LIMIT 1"
+        ")::double precision,"
+        " %(query_len)s, 1.0))"
+    )
+    output_field = FloatField()
+
+    def __init__(self, expression, query_string, **extra):
+        self.query_string = query_string.lower()
+        self.query_len = float(len(query_string))
+        super().__init__(expression, **extra)
+
+    def as_sql(self, compiler, connection, **extra_context):
+        expressions = []
+        expression_params = []
+        for arg in self.source_expressions:
+            arg_sql, arg_params = compiler.compile(arg)
+            expressions.append(arg_sql)
+            expression_params.extend(arg_params)
+
+        template = self.template % {
+            "field": expressions[0],
+            "query": "%s",
+            "query_len": "%s",
+        }
+        # query appears 2 times in the template, query_len once
+        params = expression_params + [
+            self.query_string,
+            self.query_string,
+            self.query_len,
+        ]
+        return template, params
 
 
 class ObjectIndexer:
@@ -171,6 +261,40 @@ class ObjectIndexer:
 
         return self.as_vector(texts, for_autocomplete=True)
 
+    @cached_property
+    def title_text(self):
+        """
+        Plain text for title fields, for trigram/fuzzy search.
+        """
+        texts = []
+        for field in self.search_fields:
+            for current_field, _boost, value in self.prepare_field(self.obj, field):
+                if (
+                    isinstance(current_field, SearchField)
+                    and current_field.field_name == "title"
+                ):
+                    text = value.strip()
+                    if text:
+                        texts.append(text)
+        return " ".join(texts)
+
+    @cached_property
+    def body_text(self):
+        """
+        Plain text for body fields, for trigram/fuzzy search.
+        """
+        texts = []
+        for field in self.search_fields:
+            for current_field, _boost, value in self.prepare_field(self.obj, field):
+                if (
+                    isinstance(current_field, SearchField)
+                    and current_field.field_name != "title"
+                ):
+                    text = value.strip()
+                    if text:
+                        texts.append(text)
+        return " ".join(texts)
+
 
 class PostgresIndex(BaseIndex):
     def __init__(self, backend):
@@ -284,9 +408,13 @@ class PostgresIndex(BaseIndex):
             body_sql.append(sql)
             data_params.extend(params)
 
+            # Plain text values for fuzzy search
+            data_params.append(indexer.title_text)
+            data_params.append(indexer.body_text)
+
         data_sql = ", ".join(
             [
-                f"(%s, %s, {a}, {b}, {c}, 1.0)"
+                f"(%s, %s, {a}, {b}, {c}, 1.0, %s, %s)"
                 for a, b, c in zip(title_sql, autocomplete_sql, body_sql, strict=True)
             ]
         )
@@ -294,13 +422,15 @@ class PostgresIndex(BaseIndex):
         with self.write_connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                INSERT INTO {IndexEntry._meta.db_table} (content_type_id, object_id, title, autocomplete, body, title_norm)
+                INSERT INTO {IndexEntry._meta.db_table} (content_type_id, object_id, title, autocomplete, body, title_norm, title_text, body_text)
                 (VALUES {data_sql})
                 ON CONFLICT (content_type_id, object_id)
                 DO UPDATE SET title = EXCLUDED.title,
                               title_norm = 1.0,
                               autocomplete = EXCLUDED.autocomplete,
-                              body = EXCLUDED.body
+                              body = EXCLUDED.body,
+                              title_text = EXCLUDED.title_text,
+                              body_text = EXCLUDED.body_text
                 """,
                 data_params,
             )
@@ -530,13 +660,97 @@ class PostgresSearchQueryCompiler(BaseSearchQueryCompiler):
 
         return rank_expression
 
-    def search(self, config, start, stop, score_field=None):
+    def _apply_ordering_and_scoring(
+        self, queryset, rank_expression, start, stop, score_field=None
+    ):
+        """
+        Apply ordering, scoring annotation, and slicing to a queryset.
+
+        This is shared logic between regular search and fuzzy search.
+        """
+        if self.order_by_relevance:
+            queryset = queryset.order_by(rank_expression.desc(), "-pk")
+        elif not queryset.query.order_by:
+            # Adds a default ordering to avoid issue #3729.
+            queryset = queryset.order_by("-pk")
+            rank_expression = F("pk")
+
+        if score_field is not None:
+            queryset = queryset.annotate(**{score_field: rank_expression})
+
+        return queryset[start:stop]
+
+    def _build_fuzzy_queryset(self, config, backend):
+        """
+        Build a queryset for fuzzy search using IndexEntry text fields.
+
+        Queries index_entries__title_text and index_entries__body_text
+        instead of model fields directly, consistent with how PlainText
+        and Phrase searches use the IndexEntry table.
+
+        Requires the pg_trgm extension (for trigram algorithm) or the
+        fuzzystrmatch extension (for levenshtein algorithm).
+        """
+        search_string = self.query.query_string
+        prefix_boost = backend.fuzzy_prefix_boost
+        fuzzy_algorithm = backend.fuzzy_algorithm
+        threshold = backend.fuzzy_similarity_threshold
+
+        title_field = "index_entries__title_text"
+        body_field = "index_entries__body_text"
+
+        if fuzzy_algorithm == "levenshtein":
+            title_similarity = WordLevenshteinSimilarity(F(title_field), search_string)
+            body_similarity = WordLevenshteinSimilarity(F(body_field), search_string)
+        else:
+            title_similarity = TrigramWordSimilarity(search_string, title_field)
+            body_similarity = TrigramWordSimilarity(search_string, body_field)
+
+        # Raw (unboosted) similarity for threshold filtering.
+        raw_similarity = Greatest(
+            title_similarity,
+            body_similarity,
+            output_field=FloatField(),
+        )
+
+        # Ranked similarity for ordering: title gets a boost from title_norm.
+        ranked_similarity = Greatest(
+            title_similarity * F("index_entries__title_norm"),
+            body_similarity,
+            output_field=FloatField(),
+        )
+
+        if prefix_boost > 0:
+            prefix_multiplier = Case(
+                When(
+                    **{f"{title_field}__istartswith": search_string},
+                    then=Value(1.0 + prefix_boost),
+                ),
+                default=Value(1.0),
+                output_field=FloatField(),
+            )
+            ranked_similarity = ranked_similarity * prefix_multiplier
+
+        queryset = self.queryset.annotate(
+            _fuzzy_raw_similarity=raw_similarity,
+            _fuzzy_similarity=ranked_similarity,
+        ).filter(_fuzzy_raw_similarity__gte=threshold)
+
+        return queryset, F("_fuzzy_similarity")
+
+    def search(self, config, start, stop, score_field=None, backend=None):
         # TODO: Handle MatchAll nested inside other search query classes.
         if isinstance(self.query, MatchAll):
             return self.queryset[start:stop]
 
         elif isinstance(self.query, Not) and isinstance(self.query.subquery, MatchAll):
             return self.queryset.none()
+
+        elif isinstance(self.query, Fuzzy):
+            queryset, rank_expression = self._build_fuzzy_queryset(config, backend)
+            return self._apply_ordering_and_scoring(
+                queryset, rank_expression, start, stop, score_field
+            )
 
         search_query = self.build_tsquery(self.query, config=config)
         vectors = self.get_search_vectors(search_query)
@@ -550,18 +764,9 @@ class PostgresSearchQueryCompiler(BaseSearchQueryCompiler):
             _vector_=search_query
         )
 
-        if self.order_by_relevance:
-            queryset = queryset.order_by(rank_expression.desc(), "-pk")
-
-        elif not queryset.query.order_by:
-            # Adds a default ordering to avoid issue #3729.
-            queryset = queryset.order_by("-pk")
-            rank_expression = F("pk")
-
-        if score_field is not None:
-            queryset = queryset.annotate(**{score_field: rank_expression})
-
-        return queryset[start:stop]
+        return self._apply_ordering_and_scoring(
+            queryset, rank_expression, start, stop, score_field
+        )
 
 
 class PostgresAutocompleteQueryCompiler(PostgresSearchQueryCompiler):
@@ -598,13 +803,38 @@ class PostgresSearchResults(BaseSearchResults):
             self.start,
             self.stop,
             score_field=self._score_field,
+            backend=self.backend,
         )
 
     def _do_search(self):
-        return list(self.get_queryset())
+        try:
+            return list(self.get_queryset())
+        except ProgrammingError as e:
+            self._handle_missing_postgres_extension(e)
 
     def _do_count(self):
-        return self.get_queryset().count()
+        try:
+            return self.get_queryset().count()
+        except ProgrammingError as e:
+            self._handle_missing_postgres_extension(e)
+
+    def _handle_missing_postgres_extension(self, error):
+        """
+        Handle missing extension in PostgreSQL and provide helpful messages.
+        """
+        error_message = str(error).lower()
+        if "does not exist" in error_message:
+            if "similarity" in error_message or "word_similarity" in error_message:
+                raise NotSupportedError(
+                    "Fuzzy search requires the PostgreSQL pg_trgm extension. "
+                    "Enable it by running: CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+                ) from error
+            if "levenshtein" in error_message:
+                raise NotSupportedError(
+                    "Levenshtein fuzzy search requires the PostgreSQL fuzzystrmatch extension. "
+                    "Enable it by running: CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;"
+                ) from error
+        raise
 
     supports_facet = True
 
@@ -624,7 +854,10 @@ class PostgresSearchResults(BaseSearchResults):
             )
 
         query = self.query_compiler.search(
-            self.query_compiler.get_config(self.backend), None, None
+            self.query_compiler.get_config(self.backend),
+            None,
+            None,
+            backend=self.backend,
         )
         results = (
             query.values(field_name).annotate(count=Count("pk")).order_by("-count")
@@ -687,6 +920,21 @@ class PostgresSearchBackend(BaseSearchBackend):
         # A good description for why this is important can be found at:
         # https://www.postgresql.org/docs/9.1/datatype-textsearch.html#DATATYPE-TSQUERY
         self.autocomplete_config = params.get("AUTOCOMPLETE_SEARCH_CONFIG", "simple")
+
+        # Fuzzy search similarity threshold (0.0 to 1.0)
+        # Higher values require closer matches, lower values allow more fuzzy matches
+        self.fuzzy_similarity_threshold = params.get(
+            "FUZZY_SIMILARITY_THRESHOLD", DEFAULT_FUZZY_SIMILARITY_THRESHOLD
+        )
+
+        # Fuzzy search prefix boost - multiplier bonus when field starts with query
+        # Set to a value like 0.5-2.0 to prioritize prefix matches
+        self.fuzzy_prefix_boost = params.get(
+            "FUZZY_PREFIX_BOOST", DEFAULT_FUZZY_PREFIX_BOOST
+        )
+
+        # Fuzzy search algorithm: "trigram" (pg_trgm) or "levenshtein" (fuzzystrmatch)
+        self.fuzzy_algorithm = params.get("FUZZY_ALGORITHM", DEFAULT_FUZZY_ALGORITHM)
 
         if params.get("ATOMIC_REBUILD", True):
             self.rebuilder_class = self.atomic_rebuilder_class

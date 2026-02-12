@@ -98,6 +98,9 @@ if connection.vendor == "postgresql":
         autocomplete = SearchVectorField()
         title = SearchVectorField()
         body = SearchVectorField()
+        # Plain text mirrors for trigram/fuzzy search
+        title_text = TextField(default="")
+        body_text = TextField(default="")
 
         class Meta(BaseIndexEntry.Meta):
             abstract = True
