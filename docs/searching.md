@@ -64,6 +64,14 @@ from modelsearch.query import Fuzzy
 james_joyce.books.search(Fuzzy("Ulises"))
 ```
 
+```{note}
+The PostgreSQL backend requires the `pg_trgm` extension for fuzzy search:
+
+    python manage.py enable_trigram_extension
+
+See the [PostgreSQL backend configuration](modelsearch_backends_database_postgresql) for tuning the similarity threshold.
+```
+
 #### Phrase search
 
 Search queries usually allow the terms to be a different order and not next to each other in the document. You can use a phrase search if you need the words to appear in their exact order:
