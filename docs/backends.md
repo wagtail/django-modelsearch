@@ -67,7 +67,6 @@ MODELSEARCH_BACKENDS = {
     'default': {
         'BACKEND': 'modelsearch.backends.database.postgres.postgres',
         'SEARCH_CONFIG': 'english',  # PostgreSQL text search configuration
-        'AUTOCOMPLETE_SEARCH_CONFIG': 'simple',  # Config for autocomplete (default: 'simple')
         'FUZZY_SIMILARITY_THRESHOLD': 0.3,  # Threshold for fuzzy search (default: 0.3)
         'FUZZY_PREFIX_BOOST': 0.0,  # Boost for prefix matches (default: 0.0)
     }
@@ -76,11 +75,10 @@ MODELSEARCH_BACKENDS = {
 
 ##### `SEARCH_CONFIG`
 
-The PostgreSQL text search configuration to use. This controls stemming and stop words. Common values include `'english'`, `'french'`, `'german'`, `'simple'`, etc.
+The [PostgreSQL text search configuration](https://www.postgresql.org/docs/current/textsearch-configuration.html) to use.
+You can get available configurations using `SELECT cfgname FROM pg_ts_config;`.
 
-##### `AUTOCOMPLETE_SEARCH_CONFIG`
-
-The text search configuration for autocomplete queries. Defaults to `'simple'` to disable stemming, which provides better autocomplete results.
+Note that the text search configuration for autocomplete queries defaults to `'simple'` to disable stemming, which provides better autocomplete results.
 
 ##### `FUZZY_SIMILARITY_THRESHOLD`
 

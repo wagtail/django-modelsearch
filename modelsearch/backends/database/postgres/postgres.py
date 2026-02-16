@@ -919,7 +919,7 @@ class PostgresSearchBackend(BaseSearchBackend):
         # Use 'simple' config for autocomplete to disable stemming
         # A good description for why this is important can be found at:
         # https://www.postgresql.org/docs/9.1/datatype-textsearch.html#DATATYPE-TSQUERY
-        self.autocomplete_config = params.get("AUTOCOMPLETE_SEARCH_CONFIG", "simple")
+        self.autocomplete_config = "simple"
 
         # Fuzzy search similarity threshold (0.0 to 1.0)
         # Higher values require closer matches, lower values allow more fuzzy matches
