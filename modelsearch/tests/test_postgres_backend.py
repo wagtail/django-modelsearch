@@ -302,7 +302,7 @@ class TestPostgresSearchBackend(BackendTests, TestCase):
                 list(self.backend.search(Fuzzy("JavaScript"), models.Book))
 
             self.assertIn("pg_trgm", str(context.exception))
-            self.assertIn("CREATE EXTENSION", str(context.exception))
+            self.assertIn("enable_trigram", str(context.exception))
 
 
 @unittest.skipUnless(
@@ -463,7 +463,7 @@ class TestPostgresFuzzyLevenshtein(TestCase):
                 list(self.backend.search(Fuzzy("Python"), models.Book))
 
             self.assertIn("fuzzystrmatch", str(context.exception))
-            self.assertIn("CREATE EXTENSION", str(context.exception))
+            self.assertIn("enable_fuzzystrmatch", str(context.exception))
 
 
 @unittest.skipUnless(
