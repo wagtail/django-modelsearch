@@ -29,6 +29,14 @@ class Migration(migrations.Migration):
                 sql=migrations.RunSQL.noop,
                 reverse_sql="DROP INDEX IF EXISTS modelsearch_body_text_trgm;",
             ),
+            migrations.RunSQL(
+                sql=migrations.RunSQL.noop,
+                reverse_sql="DROP INDEX IF EXISTS modelsearch_title_text_unaccent_trgm;",
+            ),
+            migrations.RunSQL(
+                sql=migrations.RunSQL.noop,
+                reverse_sql="DROP INDEX IF EXISTS modelsearch_body_text_unaccent_trgm;",
+            ),
         ]
     else:
         operations = []
