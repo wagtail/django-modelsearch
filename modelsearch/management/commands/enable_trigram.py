@@ -39,36 +39,6 @@ class Command(BaseCommand):
                     "  CREATE EXTENSION IF NOT EXISTS pg_trgm;"
                 ) from e
 
-        # Enable unaccent extension
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute("CREATE EXTENSION IF NOT EXISTS unaccent;")
-            self.stdout.write(self.style.SUCCESS("Enabled unaccent extension."))
-        except Exception as e:
-            raise CommandError(
-                f"Failed to enable unaccent extension: {e}\n"
-                "You may need superuser privileges to create extensions. "
-                "Try running as a database superuser or ask your DBA to run:\n"
-                "  CREATE EXTENSION IF NOT EXISTS unaccent;"
-            ) from e
-
-        # Create immutable f_unaccent() wrapper (required for expression indexes)
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute("""
-                    CREATE OR REPLACE FUNCTION f_unaccent(text)
-                        RETURNS text
-                        LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT AS
-                    $func$
-                    SELECT public.unaccent('public.unaccent', $1)
-                    $func$;
-                """)
-            self.stdout.write(
-                self.style.SUCCESS("Created f_unaccent() immutable wrapper function.")
-            )
-        except Exception as e:
-            raise CommandError(f"Failed to create f_unaccent() function: {e}") from e
-
         # Create accent-sensitive GIN indexes (for Fuzzy() without unaccent=True)
         try:
             with connection.cursor() as cursor:

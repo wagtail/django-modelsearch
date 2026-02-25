@@ -581,6 +581,79 @@ class TestPostgresFuzzyLevenshteinRanking(TestCase):
     MODELSEARCH_BACKENDS={
         "default": {
             "BACKEND": "modelsearch.backends.database.postgres.postgres",
+        }
+    }
+)
+class TestPostgresFuzzyUnaccent(TestCase):
+    """Test accent-insensitive fuzzy search using Fuzzy(unaccent=True)."""
+
+    backend_path = "modelsearch.backends.database.postgres.postgres"
+
+    def setUp(self):
+        BackendTests.setUp(self)
+        models.Book.objects.all().delete()
+
+    def _create_and_index(self, titles):
+        books = []
+        for title in titles:
+            book = models.Book.objects.create(
+                title=title,
+                publication_date="2020-01-01",
+                number_of_pages=100,
+            )
+            self.backend.add(book)
+            books.append(book)
+        return books
+
+    def test_unaccented_query_matches_accented_title(self):
+        """
+        Searching "ecole" (no accent) with unaccent=True should match
+        a title containing "école" (with accent).
+        """
+        self._create_and_index(["École de musique", "Foundation"])
+
+        results = list(self.backend.search(Fuzzy("ecole", unaccent=True), models.Book))
+        titles = [r.title for r in results]
+
+        self.assertIn("École de musique", titles)
+        self.assertNotIn("Foundation", titles)
+
+    def test_accented_query_matches_accented_title(self):
+        """
+        Searching "école" (with accent) with unaccent=True should also match
+        "École de musique" since both are stripped of accents before comparison.
+        """
+        self._create_and_index(["École de musique", "Foundation"])
+
+        results = list(self.backend.search(Fuzzy("école", unaccent=True), models.Book))
+        titles = [r.title for r in results]
+
+        self.assertIn("École de musique", titles)
+
+    def test_unaccent_without_extension_raises_helpful_error(self):
+        """
+        Test that accent-insensitive fuzzy search raises NotSupportedError with
+        a helpful message when the unaccent extension or f_unaccent() is missing.
+        """
+        error = ProgrammingError("function f_unaccent(text) does not exist")
+        with mock.patch(
+            "modelsearch.backends.database.postgres.postgres.PostgresSearchResults.get_queryset",
+            side_effect=error,
+        ):
+            with self.assertRaises(NotSupportedError) as context:
+                list(self.backend.search(Fuzzy("ecole", unaccent=True), models.Book))
+
+            self.assertIn("unaccent", str(context.exception))
+            self.assertIn("enable_unaccent", str(context.exception))
+
+
+@unittest.skipUnless(
+    connection.vendor == "postgresql", "The current database is not PostgreSQL"
+)
+@override_settings(
+    MODELSEARCH_BACKENDS={
+        "default": {
+            "BACKEND": "modelsearch.backends.database.postgres.postgres",
             "SEARCH_CONFIG": "dutch",
         }
     }

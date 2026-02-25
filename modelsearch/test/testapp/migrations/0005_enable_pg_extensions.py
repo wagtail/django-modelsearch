@@ -1,4 +1,8 @@
-from django.contrib.postgres.operations import CreateExtension, TrigramExtension
+from django.contrib.postgres.operations import (
+    CreateExtension,
+    TrigramExtension,
+    UnaccentExtension,
+)
 from django.db import migrations
 
 
@@ -9,5 +13,6 @@ class Migration(migrations.Migration):
 
     operations = [
         TrigramExtension(),
+        UnaccentExtension(),
         CreateExtension("fuzzystrmatch"),
     ]

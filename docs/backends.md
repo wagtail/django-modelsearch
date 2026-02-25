@@ -95,13 +95,16 @@ A bonus added to the similarity score when a field starts with the search query 
 - This helps rank "Python Guide" higher than "Learning Python" when searching for "Python"
 
 ```{note}
-Fuzzy search requires the PostgreSQL `pg_trgm` extension. You can enable it using the provided management command:
+Fuzzy search requires PostgreSQL extensions. Use the provided management commands to enable what you need:
 
+    # Trigram similarity (required for the default trigram algorithm)
     python manage.py enable_trigram
 
-Or manually via SQL:
+    # Accent-insensitive matching (required for Fuzzy(unaccent=True))
+    python manage.py enable_unaccent
 
-    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    # Levenshtein distance (required for FUZZY_ALGORITHM = "levenshtein")
+    python manage.py enable_fuzzystrmatch
 ```
 
 (modelsearch_backends_elasticsearch)=
