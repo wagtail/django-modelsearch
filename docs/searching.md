@@ -67,7 +67,7 @@ james_joyce.books.search(Fuzzy("Ulises"))
 ```{note}
 The PostgreSQL backend requires the `pg_trgm` extension for fuzzy search:
 
-    python manage.py enable_trigram_extension
+    python manage.py enable_trigram
 
 See the [PostgreSQL backend configuration](modelsearch_backends_database_postgresql) for tuning the similarity threshold.
 ```

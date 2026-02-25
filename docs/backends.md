@@ -97,7 +97,7 @@ A bonus added to the similarity score when a field starts with the search query 
 ```{note}
 Fuzzy search requires the PostgreSQL `pg_trgm` extension. You can enable it using the provided management command:
 
-    python manage.py enable_trigram_extension
+    python manage.py enable_trigram
 
 Or manually via SQL:
 

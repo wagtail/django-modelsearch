@@ -18,36 +18,16 @@ class Migration(migrations.Migration):
                 name="body_text",
                 field=models.TextField(default=""),
             ),
-            # GIN trigram indexes for efficient fuzzy search.
-            # These require the pg_trgm extension. The CREATE INDEX is
-            # wrapped in a try/catch so it silently skips if pg_trgm
-            # is not yet enabled. Users who enable pg_trgm later can
-            # create these indexes manually for better performance:
-            #   CREATE INDEX ... USING gin (title_text gin_trgm_ops);
-            #   CREATE INDEX ... USING gin (body_text gin_trgm_ops);
+            # GIN trigram indexes are created by the enable_trigram
+            # management command, not here. The reverse SQL drops them on
+            # migration rollback.
             migrations.RunSQL(
-                sql="""
-                    DO $$
-                    BEGIN
-                        CREATE INDEX modelsear_title_text_trgm
-                            ON modelsearch_indexentry USING gin (title_text gin_trgm_ops);
-                    EXCEPTION WHEN undefined_object THEN
-                        NULL;
-                    END $$;
-                """,
-                reverse_sql="DROP INDEX IF EXISTS modelsear_title_text_trgm;",
+                sql=migrations.RunSQL.noop,
+                reverse_sql="DROP INDEX IF EXISTS modelsearch_title_text_trgm;",
             ),
             migrations.RunSQL(
-                sql="""
-                    DO $$
-                    BEGIN
-                        CREATE INDEX modelsear_body_text_trgm
-                            ON modelsearch_indexentry USING gin (body_text gin_trgm_ops);
-                    EXCEPTION WHEN undefined_object THEN
-                        NULL;
-                    END $$;
-                """,
-                reverse_sql="DROP INDEX IF EXISTS modelsear_body_text_trgm;",
+                sql=migrations.RunSQL.noop,
+                reverse_sql="DROP INDEX IF EXISTS modelsearch_body_text_trgm;",
             ),
         ]
     else:

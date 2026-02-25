@@ -51,9 +51,15 @@ class Fuzzy(SearchQuery):
     OPERATORS = ["and", "or"]
     DEFAULT_OPERATOR = "or"
 
-    def __init__(self, query_string: str, operator: str = DEFAULT_OPERATOR):
+    def __init__(
+        self,
+        query_string: str,
+        operator: str = DEFAULT_OPERATOR,
+        unaccent: bool = False,
+    ):
         self.query_string = query_string
         self.operator = operator.lower()
+        self.unaccent = unaccent
         if self.operator not in self.OPERATORS:
             raise ValueError("`operator` must be either 'or' or 'and'.")
 

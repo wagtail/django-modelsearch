@@ -65,6 +65,13 @@ DEFAULT_FUZZY_PREFIX_BOOST = 0.0  # Multiplier bonus when field starts with quer
 DEFAULT_FUZZY_ALGORITHM = "trigram"  # "trigram" or "levenshtein"
 
 
+class FUnaccent(Func):
+    """Calls the immutable f_unaccent() SQL wrapper for use in trigram queries and indexes."""
+
+    function = "f_unaccent"
+    output_field = TextField()
+
+
 class LevenshteinDistance(Func):
     """PostgreSQL levenshtein() from fuzzystrmatch extension."""
 
@@ -690,8 +697,14 @@ class PostgresSearchQueryCompiler(BaseSearchQueryCompiler):
 
         Requires the pg_trgm extension (for trigram algorithm) or the
         fuzzystrmatch extension (for levenshtein algorithm).
+
+        When query.unaccent is True, wraps field expressions and the search
+        string in f_unaccent() for accent-insensitive matching. Requires the
+        unaccent extension and f_unaccent() function to be installed via
+        the enable_trigram or enable_unaccent management command.
         """
         search_string = self.query.query_string
+        use_unaccent = getattr(self.query, "unaccent", False)
         prefix_boost = backend.fuzzy_prefix_boost
         fuzzy_algorithm = backend.fuzzy_algorithm
         threshold = backend.fuzzy_similarity_threshold
@@ -699,12 +712,46 @@ class PostgresSearchQueryCompiler(BaseSearchQueryCompiler):
         title_field = "index_entries__title_text"
         body_field = "index_entries__body_text"
 
-        if fuzzy_algorithm == "levenshtein":
-            title_similarity = WordLevenshteinSimilarity(F(title_field), search_string)
-            body_similarity = WordLevenshteinSimilarity(F(body_field), search_string)
+        if use_unaccent:
+            norm_search_string = FUnaccent(
+                Value(search_string, output_field=TextField())
+            )
+            if fuzzy_algorithm == "levenshtein":
+                # Annotate with unaccented versions then pass annotation names to similarity
+                queryset = self.queryset.annotate(
+                    _title_unaccented=FUnaccent(F(title_field)),
+                    _body_unaccented=FUnaccent(F(body_field)),
+                )
+                title_similarity = WordLevenshteinSimilarity(
+                    F("_title_unaccented"), search_string
+                )
+                body_similarity = WordLevenshteinSimilarity(
+                    F("_body_unaccented"), search_string
+                )
+            else:
+                # Annotate with unaccented versions then pass annotation names to TrigramWordSimilarity
+                queryset = self.queryset.annotate(
+                    _title_unaccented=FUnaccent(F(title_field)),
+                    _body_unaccented=FUnaccent(F(body_field)),
+                )
+                title_similarity = TrigramWordSimilarity(
+                    norm_search_string, "_title_unaccented"
+                )
+                body_similarity = TrigramWordSimilarity(
+                    norm_search_string, "_body_unaccented"
+                )
         else:
-            title_similarity = TrigramWordSimilarity(search_string, title_field)
-            body_similarity = TrigramWordSimilarity(search_string, body_field)
+            queryset = self.queryset
+            if fuzzy_algorithm == "levenshtein":
+                title_similarity = WordLevenshteinSimilarity(
+                    F(title_field), search_string
+                )
+                body_similarity = WordLevenshteinSimilarity(
+                    F(body_field), search_string
+                )
+            else:
+                title_similarity = TrigramWordSimilarity(search_string, title_field)
+                body_similarity = TrigramWordSimilarity(search_string, body_field)
 
         # Raw (unboosted) similarity for threshold filtering.
         raw_similarity = Greatest(
@@ -731,7 +778,7 @@ class PostgresSearchQueryCompiler(BaseSearchQueryCompiler):
             )
             ranked_similarity = ranked_similarity * prefix_multiplier
 
-        queryset = self.queryset.annotate(
+        queryset = queryset.annotate(
             _fuzzy_raw_similarity=raw_similarity,
             _fuzzy_similarity=ranked_similarity,
         ).filter(_fuzzy_raw_similarity__gte=threshold)
@@ -827,12 +874,17 @@ class PostgresSearchResults(BaseSearchResults):
             if "similarity" in error_message or "word_similarity" in error_message:
                 raise NotSupportedError(
                     "Fuzzy search requires the PostgreSQL pg_trgm extension. "
-                    "Enable it by running: CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+                    "Enable it by running: python manage.py enable_trigram"
                 ) from error
             if "levenshtein" in error_message:
                 raise NotSupportedError(
                     "Levenshtein fuzzy search requires the PostgreSQL fuzzystrmatch extension. "
-                    "Enable it by running: CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;"
+                    "Enable it by running: python manage.py enable_fuzzystrmatch"
+                ) from error
+            if "f_unaccent" in error_message or "unaccent" in error_message:
+                raise NotSupportedError(
+                    "Accent-insensitive fuzzy search requires the unaccent extension and "
+                    "f_unaccent() function. Run: python manage.py enable_unaccent"
                 ) from error
         raise
 
