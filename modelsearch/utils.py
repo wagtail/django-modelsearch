@@ -118,8 +118,10 @@ def parse_query_string(query_string, operator=None, zero_terms=MATCH_NONE):
     tokens = []
     if '"' in query_string:
         parts = query_string.split('"')
+    elif re.search(r"(?<!\w)'|'(?!\w)", query_string):
+        parts = re.split(r"(?<!\w)'|'(?!\w)", query_string)
     else:
-        parts = query_string.split("'")
+        parts = [query_string]
 
     for part in parts:
         part = part.strip()
