@@ -181,7 +181,7 @@ class MatchExpression(Expression):
         self.query = query
 
     def as_sql(self, compiler, connection):
-        self.template = f"{compiler.query.base_table} MATCH %s"
+        template = f"{compiler.query.base_table} MATCH %s"
         joined_columns = " ".join(
             self.columns
         )  # The format of the columns is 'column1 column2'
@@ -192,7 +192,7 @@ class MatchExpression(Expression):
         params = [
             f"{{{joined_columns}}} : ({formatted_query})"
         ]  # Build the full MATCH search query. It will be a parameter to the template, so no SQL injections are possible here.
-        return (self.template, params)
+        return (template, params)
 
     def __repr__(self):
         return f"<MatchExpression: {self.columns!r} = {self.query!r}>"
