@@ -31,7 +31,6 @@ from django.db.models import (
     Value,
     When,
 )
-from django.db.models.constants import LOOKUP_SEP
 from django.db.models.functions import Cast, Greatest, Length
 from django.db.models.sql.subqueries import InsertQuery
 from django.utils.encoding import force_str
