@@ -56,6 +56,57 @@ This backend is intended to be used for development and also should be good enou
 
 If you use the PostgreSQL database backend, you must add `django.contrib.postgres` to your [`INSTALLED_APPS`](https://docs.djangoproject.com/en/stable/ref/settings/#std-setting-INSTALLED_APPS) setting.
 
+(modelsearch_backends_database_postgresql)=
+
+#### PostgreSQL Configuration
+
+The PostgreSQL backend supports additional configuration options:
+
+```python
+MODELSEARCH_BACKENDS = {
+    'default': {
+        'BACKEND': 'modelsearch.backends.database.postgres.postgres',
+        'SEARCH_CONFIG': 'english',  # PostgreSQL text search configuration
+        'FUZZY_SIMILARITY_THRESHOLD': 0.3,  # Threshold for fuzzy search (default: 0.3)
+        'FUZZY_PREFIX_BOOST': 0.0,  # Boost for prefix matches (default: 0.0)
+    }
+}
+```
+
+##### `SEARCH_CONFIG`
+
+The [PostgreSQL text search configuration](https://www.postgresql.org/docs/current/textsearch-configuration.html) to use.
+You can get available configurations using `SELECT cfgname FROM pg_ts_config;`.
+
+Note that the text search configuration for autocomplete queries defaults to `'simple'` to disable stemming, which provides better autocomplete results.
+
+##### `FUZZY_SIMILARITY_THRESHOLD`
+
+The minimum trigram similarity score (0.0 to 1.0) required for fuzzy search matches. Default is `0.3`.
+
+- **Higher values** (e.g., 0.5) require closer matches, returning fewer but more precise results
+- **Lower values** (e.g., 0.1) allow more approximate matches, returning more results
+
+##### `FUZZY_PREFIX_BOOST`
+
+A bonus added to the similarity score when a field starts with the search query (case-insensitive). Default is `0.0` (disabled).
+
+- Set to a value like `0.2` to `0.5` to prioritize results where the field starts with the query
+- This helps rank "Python Guide" higher than "Learning Python" when searching for "Python"
+
+```{note}
+Fuzzy search requires PostgreSQL extensions. Use the provided management commands to enable what you need:
+
+    # Trigram similarity (required for the default trigram algorithm)
+    python manage.py enable_trigram
+
+    # Accent-insensitive matching (required for Fuzzy(unaccent=True))
+    python manage.py enable_unaccent
+
+    # Levenshtein distance (required for FUZZY_ALGORITHM = "levenshtein")
+    python manage.py enable_fuzzystrmatch
+```
+
 (modelsearch_backends_elasticsearch)=
 
 ### Elasticsearch/OpenSearch Backends
