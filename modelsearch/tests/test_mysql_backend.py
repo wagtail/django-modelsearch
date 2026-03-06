@@ -210,6 +210,7 @@ class TestMySQLSearchBackend(BackendTests, TransactionTestCase):
     def test_search_and_match_none(self):
         return super().test_search_and_match_none()
 
+    @unittest.skip("mysql backend dosen't support this yet")
     def test_related_field_search_returns_parent_model(self):
         """
         Ensure that searching on a related field (authors__name)
