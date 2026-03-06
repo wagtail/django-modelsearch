@@ -248,6 +248,11 @@ class TestMySQLSearchBackend(BackendTests, TransactionTestCase):
         results_list = list(results)
         self.assertIn(book, results_list)
 
+        # ---- Test 4: CRITICAL - Proof that fields parameter is RESPECTED ----
+        results = self.backend.search("Python", models.Book, fields=["authors__name"])
+        results_list = list(results)
+        self.assertNotIn(book, results_list)
+
     def test_reset_indexes(self):
         """
         After running backend.reset_indexes(), search should return no results.
