@@ -25,8 +25,17 @@ logger = logging.getLogger("modelsearch.index")
 
 
 class Indexed:
+    """
+    Mixin for models that should be indexed for searching.
+    """
+
     @classmethod
     def indexed_get_parent(cls, require_model=True):
+        """
+        Return the immediate parent class of this model that implements Indexed.
+        :param require_model: Whether to require the parent to be a Django model.
+        :return: The parent class if found, otherwise None.
+        """
         for base in cls.__bases__:
             if issubclass(base, Indexed) and (
                 issubclass(base, models.Model) or require_model is False
@@ -35,6 +44,11 @@ class Indexed:
 
     @classmethod
     def indexed_get_content_type(cls):
+        """
+        Return a string that identifies the content type for this indexed model.
+        :return: The content type for this indexed model.
+        :rtype: str
+        """
         # Work out content type
         content_type = (cls._meta.app_label + "_" + cls.__name__).lower()
 
@@ -48,6 +62,12 @@ class Indexed:
 
     @classmethod
     def indexed_get_toplevel_content_type(cls):
+        """
+        Return a string that identifies the content type of the toplevel indexed model in this model's inheritance tree.
+
+        :return: The content type of the toplevel indexed model.
+        :rtype: str
+        """
         # Get parent content type
         parent = cls.indexed_get_parent()
         if parent:
@@ -58,6 +78,11 @@ class Indexed:
 
     @classmethod
     def get_search_fields(cls):
+        """
+        Return the list of entries (of all types) in this model's search_fields, with duplicates removed.
+        :return: The list of search fields.
+        :rtype: list
+        """
         search_fields = {}
 
         for field in cls.search_fields:
@@ -67,6 +92,11 @@ class Indexed:
 
     @classmethod
     def get_searchable_search_fields(cls):
+        """
+        Return the list of SearchField entries in this model's search_fields, with duplicates removed.
+        :return: The list of SearchField entries in this model's search_fields.
+        :rtype: list
+        """
         return [
             (field, field.field_name)
             for field in cls.get_search_fields()
@@ -110,12 +140,23 @@ class Indexed:
 
     @classmethod
     def get_filterable_search_fields(cls):
+        """
+        Return the list of FilterField entries in this model's search_fields, with duplicates removed.
+        :return: The list of FilterField entries in this model's search_fields.
+        :rtype: list
+        """
         return [
             field for field in cls.get_search_fields() if isinstance(field, FilterField)
         ]
 
     @classmethod
     def get_indexed_objects(cls):
+        """
+        Return a queryset of the objects that should be indexed for this model.
+        By default this returns all objects, but you can override this to return a subset of objects if required.
+        :return: A queryset of the objects that should be indexed for this model.
+        :rtype: django.db.models.query.QuerySet
+        """
         queryset = cls.objects.all()
 
         # Add prefetch/select related for RelatedFields
@@ -134,6 +175,9 @@ class Indexed:
 
     @classmethod
     def _has_field(cls, name):
+        """
+        Return True if this model has either a field or a method/property with the given name.
+        """
         try:
             cls._meta.get_field(name)
             return True
@@ -142,12 +186,18 @@ class Indexed:
 
     @classmethod
     def check(cls, **kwargs):
+        """
+        Run checks on the model.
+        """
         errors = super().check(**kwargs)
         errors.extend(cls._check_search_fields(**kwargs))
         return errors
 
     @classmethod
     def _check_search_fields(cls, **kwargs):
+        """
+        Run checks on the search fields.
+        """
         errors = []
         for field in cls.get_search_fields():
             message = "{model}.search_fields contains non-existent field '{name}'"

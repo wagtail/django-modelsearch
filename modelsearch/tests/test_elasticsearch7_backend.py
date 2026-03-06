@@ -1106,9 +1106,6 @@ class TestElasticsearch7Mapping(TestCase):
         # Create ES document
         self.obj = models.Book.objects.get(id=4)
 
-    def test_get_document_type(self):
-        self.assertEqual(self.es_mapping.get_document_type(), "doc")
-
     def test_get_mapping(self):
         # Build mapping
         mapping = self.es_mapping.get_mapping()
@@ -1225,9 +1222,6 @@ class TestElasticsearch7MappingInheritance(TestCase):
         self.es_mapping = Elasticsearch7SearchBackend.mapping_class(models.Novel)
 
         self.obj = models.Novel.objects.get(id=4)
-
-    def test_get_document_type(self):
-        self.assertEqual(self.es_mapping.get_document_type(), "doc")
 
     def test_get_mapping(self):
         # Build mapping

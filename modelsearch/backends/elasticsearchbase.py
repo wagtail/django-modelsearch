@@ -46,8 +46,10 @@ class Field:
 
 
 class ElasticsearchBaseMapping:
-    all_field_name = "_all_text"
-    edgengrams_field_name = "_edgengrams"
+    """
+    Handles the translation from Django ORM model instances to the data structure stored by Elasticsearch
+    for a given model class.
+    """
 
     type_map = {
         "AutoField": "integer",
@@ -78,8 +80,6 @@ class ElasticsearchBaseMapping:
         "URLField": "string",
     }
 
-    keyword_type = "keyword"
-    text_type = "text"
     edgengram_analyzer_config = {
         "analyzer": "edgengram_analyzer",
         "search_analyzer": "standard",
@@ -89,18 +89,24 @@ class ElasticsearchBaseMapping:
         self.model = model
 
     def get_parent(self):
+        """Return the mapping for the indexed model that this model inherits from, or None if there isn't one."""
         for base in self.model.__bases__:
             if issubclass(base, Indexed) and issubclass(base, models.Model):
                 return type(self)(base)
 
-    def get_document_type(self):
-        return "doc"
-
     def get_field_column_name(self, field):
-        # Fields in derived models get prefixed with their model name, fields
-        # in the root model don't get prefixed at all
-        # This is to prevent mapping clashes in cases where two page types have
-        # a field with the same name but a different type.
+        """
+        Given a search_fields entry, return the name to be used for that field in the Elasticsearch document.
+        This is formed as follows:
+        - For all types other than RelatedFields, take the attribute name of the field
+          (which generally matches the field name, but for a `foo` ForeignKey is `foo_id`)
+        - for RelatedFields, take the given relation name
+        - If the field/relation is defined on a subclass rather than the base model that directly inherits from
+          Indexed, prefix this with "{app_label}_{model_name}__" (to avoid clashes where multiple subclasses have
+          fields with the same name but different types)
+        - for FilterField, suffix this with "_filter"
+        - for AutocompleteField, suffix this with "_edgengrams"
+        """
         root_model = get_model_root(self.model)
         definition_model = field.get_definition_model(self.model)
 
@@ -124,9 +130,12 @@ class ElasticsearchBaseMapping:
             return prefix + field.field_name
 
     def get_boost_field_name(self, boost):
+        """
+        Returns the field name that contains all content with a given boost value.
+        """
         # replace . with _ to avoid issues with . in field names
         boost = str(float(boost)).replace(".", "_")
-        return f"{self.all_field_name}_boost_{boost}"
+        return f"_all_text_boost_{boost}"
 
     def get_content_type(self):
         """
@@ -158,6 +167,9 @@ class ElasticsearchBaseMapping:
         return content_types
 
     def get_field_mapping(self, field):
+        """
+        Given a search_fields entry, return the (key, value) pair to include in the mapping definition.
+        """
         if isinstance(field, RelatedFields):
             mapping = {"type": "nested", "properties": {}}
             nested_model = field.get_field(self.model).related_model
@@ -175,7 +187,7 @@ class ElasticsearchBaseMapping:
 
             if isinstance(field, SearchField):
                 if mapping["type"] == "string":
-                    mapping["type"] = self.text_type
+                    mapping["type"] = "text"
 
                 if field.boost:
                     mapping["boost"] = field.boost
@@ -183,12 +195,12 @@ class ElasticsearchBaseMapping:
                 mapping["include_in_all"] = True
 
             if isinstance(field, AutocompleteField):
-                mapping["type"] = self.text_type
+                mapping["type"] = "text"
                 mapping.update(self.edgengram_analyzer_config)
 
             elif isinstance(field, FilterField):
                 if mapping["type"] == "string":
-                    mapping["type"] = self.keyword_type
+                    mapping["type"] = "keyword"
 
             if "es_extra" in field.kwargs:
                 for key, value in field.kwargs["es_extra"].items():
@@ -197,20 +209,32 @@ class ElasticsearchBaseMapping:
             return self.get_field_column_name(field), mapping
 
     def get_mapping(self):
+        """
+        Return the mapping definition for this model. This is a JSON-ish object with a single top-level property
+        `properties` containing the definition for each property that will be stored in Elasticsearch, namely:
+        - pk - the primary key of the model instance
+        - _django_content_type - the list of content type strings for this model and all superclasses
+        - _edgengrams - all content from fields with an `AutocompleteField`, indexed for partial word matching
+        - one property for each field defined in search_fields, as defined by `get_field_mapping` and with the name
+          determined by `get_field_column_name`
+        - _all_text - a catch-all field containing the content of all SearchFields, for searching across all fields
+        - _all_text_boost_{n} for each distinct boost value that appears in search_fields, containing all content
+          with that boost value
+        """
         # Make field list
         fields = {
-            "pk": {"type": self.keyword_type, "store": True},
-            "_django_content_type": {"type": self.keyword_type},
-            self.edgengrams_field_name: {"type": self.text_type},
+            "pk": {"type": "keyword", "store": True},
+            "_django_content_type": {"type": "keyword"},
+            "_edgengrams": {"type": "text"},
         }
-        fields[self.edgengrams_field_name].update(self.edgengram_analyzer_config)
+        fields["_edgengrams"].update(self.edgengram_analyzer_config)
 
         for field in self.model.get_search_fields():
             key, val = self.get_field_mapping(field)
             fields[key] = val
 
         # Add _all_text field
-        fields[self.all_field_name] = {"type": "text"}
+        fields["_all_text"] = {"type": "text"}
 
         unique_boosts = set()
 
@@ -219,7 +243,7 @@ class ElasticsearchBaseMapping:
             for field_mapping in properties.values():
                 if "include_in_all" in field_mapping:
                     if field_mapping["include_in_all"]:
-                        field_mapping["copy_to"] = self.all_field_name
+                        field_mapping["copy_to"] = "_all_text"
 
                         if "boost" in field_mapping:
                             # added to unique_boosts to avoid duplicate fields, or cases like 2.0 and 2
@@ -244,15 +268,23 @@ class ElasticsearchBaseMapping:
         }
 
     def get_document_id(self, obj):
+        """
+        Return the ID to uniquely identify this document within the index.
+        """
         return str(obj.pk)
 
     def _clean_value(self, value):
-        # Convert types that Elasticsearch can't serialize directly
+        """
+        Convert a value to a JSON-serializable type.
+        """
         if isinstance(value, time):
             return value.isoformat()
         return value
 
     def _get_nested_document(self, fields, obj):
+        """
+        Get the document for a related model instance that is to be nested into the main document.
+        """
         doc = {}
         edgengrams = []
         model = type(obj)
@@ -269,7 +301,9 @@ class ElasticsearchBaseMapping:
         return doc, edgengrams
 
     def get_document(self, obj):
-        # Build document
+        """
+        Get the document to be pushed to Elasticsearch for the given model instance.
+        """
         doc = {"pk": str(obj.pk), "_django_content_type": self.get_all_content_types()}
         edgengrams = []
         for field in self.model.get_search_fields():
@@ -310,7 +344,7 @@ class ElasticsearchBaseMapping:
                 edgengrams.append(value)
 
         # Add partials to document
-        doc[self.edgengrams_field_name] = edgengrams
+        doc["_edgengrams"] = edgengrams
 
         return doc
 
@@ -475,7 +509,7 @@ class ElasticsearchBaseSearchQueryCompiler(BaseSearchQueryCompiler):
                     remapped_fields.append(Field(field_name, field.boost or 1))
 
         else:
-            remapped_fields.append(Field(self.mapping.all_field_name))
+            remapped_fields.append(Field("_all_text"))
 
             models = get_indexed_models()
             unique_boosts = set()
@@ -704,7 +738,7 @@ class ElasticsearchBaseSearchQueryCompiler(BaseSearchQueryCompiler):
         if self.remapped_fields:
             fields = self.remapped_fields
         else:
-            fields = [self.mapping.all_field_name]
+            fields = ["_all_text"]
 
         if len(fields) == 0:
             # No fields. Return a query that'll match nothing
@@ -1038,7 +1072,7 @@ class ElasticsearchAutocompleteQueryCompilerImpl:
             self.remapped_fields = None
 
     def get_inner_query(self):
-        fields = self.remapped_fields or [self.mapping.edgengrams_field_name]
+        fields = self.remapped_fields or ["_edgengrams"]
         fields = [Field(field) for field in fields]
         if len(fields) == 0:
             # No fields. Return a query that'll match nothing
