@@ -203,47 +203,7 @@ class TestPostgresSearchBackend(BackendTests, TestCase):
         self.assertEqual(results.count(), 0)
 
     def test_related_field_search_returns_parent_model(self):
-        """
-        Ensure that searching on a related field (authors__name)
-        returns the parent model instance, and fails if the related field
-        is not indexed.
-        """
-
-        # Create author
-        author = models.Author.objects.create(name="Guido van Rossum")
-
-        # Create book linked to that author
-        book = models.Book.objects.create(
-            title="Python Internals",
-            publication_date="1999-05-01",
-            number_of_pages=333,
-        )
-        book.authors.add(author)
-
-        # Rebuild index with related fields
-        self.backend.add(book)
-
-        # ---- Test 1: Search by related field should return book ----
-        results = self.backend.search("Guido", models.Book, fields=["authors__name"])
-        results_list = list(results)
-        self.assertIn(book, results_list)
-
-        # ---- Test 2: Searching unrelated string should NOT return book ----
-        results = self.backend.search(
-            "Nonexistent Author", models.Book, fields=["authors__name"]
-        )
-        results_list = list(results)
-        self.assertNotIn(book, results_list)
-
-        # ---- Test 3: Searching by book title still works ----
-        results = self.backend.search("Python", models.Book, fields=["title"])
-        results_list = list(results)
-        self.assertIn(book, results_list)
-
-        # ---- Test 4: CRITICAL - Proof that fields parameter is RESPECTED ----
-        results = self.backend.search("Python", models.Book, fields=["authors__name"])
-        results_list = list(results)
-        self.assertNotIn(book, results_list)
+        return super().test_related_field_search_returns_parent_model()
 
     def test_get_search_field_for_related_fields(self):
         """
