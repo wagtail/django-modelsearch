@@ -3,8 +3,6 @@ from django.conf import settings
 from django.core.checks import Tags, Warning, register
 from django.db import connection
 
-from modelsearch.signal_handlers import register_signal_handlers
-
 
 class ModelSearchAppConfig(AppConfig):
     name = "modelsearch"
@@ -14,6 +12,7 @@ class ModelSearchAppConfig(AppConfig):
     backend_setting_name = "MODELSEARCH_BACKENDS"
 
     def ready(self):
+        from modelsearch.signal_handlers import register_signal_handlers
         register_signal_handlers()
 
         if connection.vendor == "postgresql":
