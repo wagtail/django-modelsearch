@@ -716,29 +716,20 @@ class PostgresSearchQueryCompiler(BaseSearchQueryCompiler):
             norm_search_string = FUnaccent(
                 Value(search_string, output_field=TextField())
             )
+            queryset = self.queryset
             if fuzzy_algorithm == "levenshtein":
-                # Annotate with unaccented versions then pass annotation names to similarity
-                queryset = self.queryset.annotate(
-                    _title_unaccented=FUnaccent(F(title_field)),
-                    _body_unaccented=FUnaccent(F(body_field)),
-                )
                 title_similarity = WordLevenshteinSimilarity(
-                    F("_title_unaccented"), search_string
+                    FUnaccent(F(title_field)), norm_search_string
                 )
                 body_similarity = WordLevenshteinSimilarity(
-                    F("_body_unaccented"), search_string
+                    FUnaccent(F(body_field)), norm_search_string
                 )
             else:
-                # Annotate with unaccented versions then pass annotation names to TrigramWordSimilarity
-                queryset = self.queryset.annotate(
-                    _title_unaccented=FUnaccent(F(title_field)),
-                    _body_unaccented=FUnaccent(F(body_field)),
-                )
                 title_similarity = TrigramWordSimilarity(
-                    norm_search_string, "_title_unaccented"
+                    norm_search_string, FUnaccent(F(title_field))
                 )
                 body_similarity = TrigramWordSimilarity(
-                    norm_search_string, "_body_unaccented"
+                    norm_search_string, FUnaccent(F(body_field))
                 )
         else:
             queryset = self.queryset
