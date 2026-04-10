@@ -385,7 +385,7 @@ class PostgresSearchQueryCompiler(BaseSearchQueryCompiler):
 
     def build_tsquery_content(self, query, config=None, invert=False):
         if isinstance(query, PlainText):
-            terms = re.split(r"[\s\-]+", query.query_string)
+            terms = [term for term in re.split(r"[\s\-]+", query.query_string) if term]
             if not terms:
                 return None
 

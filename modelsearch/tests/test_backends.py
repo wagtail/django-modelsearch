@@ -433,6 +433,24 @@ class BackendTests:
             ],
         )
 
+    def test_autocomplete_trailing_hyphen(self):
+        book = models.Book.objects.create(
+            title="Poseidon-1234ABC",
+            number_of_pages=350,
+            publication_date=date(1961, 11, 10),
+        )
+        self.backend.add(book)
+        self.backend.get_index_for_model(models.Book).refresh()
+
+        results = self.backend.autocomplete("poseidon-", models.Book)
+
+        self.assertCountEqual(
+            [r.title for r in results],
+            [
+                "Poseidon-1234ABC",
+            ],
+        )
+
     # FILTERING TESTS
 
     def test_filter_exact_value(self):
