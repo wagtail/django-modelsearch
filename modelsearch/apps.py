@@ -13,6 +13,7 @@ class ModelSearchAppConfig(AppConfig):
 
     def ready(self):
         from modelsearch.signal_handlers import register_signal_handlers
+
         register_signal_handlers()
 
         if connection.vendor == "postgresql":
