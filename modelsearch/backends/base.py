@@ -8,6 +8,7 @@ from django.db.models.functions.datetime import ExtractYear
 from django.db.models.lookups import Lookup
 from django.db.models.query import QuerySet
 from django.db.models.sql.where import NothingNode, WhereNode
+from queryish import Queryish
 
 from modelsearch.index import (
     FilterField,
@@ -442,7 +443,7 @@ class BaseSearchQueryCompiler:
         list(self._get_order_by())
 
 
-class BaseSearchResults:
+class BaseSearchResults(Queryish):
     """
     Represents the results of a search query. This emulates a Django QuerySet, but with the results not necessarily
     coming from the database - the result set can be sliced to obtain a new SearchResults instance, and the search
@@ -456,44 +457,15 @@ class BaseSearchResults:
     supports_facet = False
 
     def __init__(self, backend, query_compiler, prefetch_related=None):
+        super().__init__()
         self.backend = backend
         self.query_compiler = query_compiler
         self.prefetch_related = prefetch_related
-        self.start = 0
-        self.stop = None
-        self._results_cache = None
-        self._count_cache = None
         self._score_field = None
         # Attach the model to mimic a QuerySet so that we can inspect it after
         # doing a search, e.g. to get the model's name in a paginator.
         # The query_compiler may be None, e.g. when using EmptySearchResults.
         self.model = query_compiler.queryset.model if query_compiler else None
-
-    def _set_limits(self, start=None, stop=None):
-        if stop is not None:
-            if self.stop is not None:
-                self.stop = min(self.stop, self.start + stop)
-            else:
-                self.stop = self.start + stop
-
-        if start is not None:
-            if self.stop is not None:
-                self.start = min(self.stop, self.start + start)
-            else:
-                self.start = self.start + start
-
-    def _clone(self):
-        """
-        Returns a copy of this object with the same options in place.
-        """
-        klass = self.__class__
-        new = klass(
-            self.backend, self.query_compiler, prefetch_related=self.prefetch_related
-        )
-        new.start = self.start
-        new.stop = self.stop
-        new._score_field = self._score_field
-        return new
 
     def _do_search(self):
         """
@@ -502,69 +474,20 @@ class BaseSearchResults:
         """
         raise NotImplementedError
 
+    def run_query(self):
+        return self._do_search()
+
     def _do_count(self):
         """
         To be implemented by subclasses - returns the result count.
         """
         raise NotImplementedError
 
-    def results(self):
-        """
-        Returns the search results, caching them to avoid repeated queries.
-        """
-        if self._results_cache is None:
-            self._results_cache = list(self._do_search())
-        return self._results_cache
-
-    def count(self):
-        """
-        Returns the count of search results, caching it to avoid repeated queries.
-        """
-        if self._count_cache is None:
-            if self._results_cache is not None:
-                self._count_cache = len(self._results_cache)
-            else:
-                self._count_cache = self._do_count()
-        return self._count_cache
-
-    def __getitem__(self, key):
-        new = self._clone()
-
-        if isinstance(key, slice):
-            # Set limits
-            start = int(key.start) if key.start is not None else None
-            stop = int(key.stop) if key.stop is not None else None
-            new._set_limits(start, stop)
-
-            # Copy results cache
-            if self._results_cache is not None:
-                new._results_cache = self._results_cache[key]
-
-            return new
-        else:
-            if self._results_cache is not None:
-                return self._results_cache[key]
-
-            new.start = self.start + key
-            new.stop = self.start + key + 1
-            return list(new)[0]
-
-    def __iter__(self):
-        return iter(self.results())
-
-    def __len__(self):
-        return len(self.results())
-
-    def __repr__(self):
-        data = list(self[:21])
-        if len(data) > 20:
-            data[-1] = "...(remaining elements truncated)..."
-        return f"<SearchResults {data!r}>"
+    def run_count(self):
+        return self._do_count()
 
     def annotate_score(self, field_name):
-        clone = self._clone()
-        clone._score_field = field_name
-        return clone
+        return self.clone(_score_field=field_name)
 
     def facet(self, field_name):
         raise NotImplementedError("This search backend does not support faceting")
