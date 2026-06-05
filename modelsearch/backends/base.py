@@ -105,6 +105,18 @@ class BaseSearchQueryCompiler:
         # All remaining aliases in the list are joins.
         table_aliases.pop()
 
+        # Early exit: if the column is on the base table itself (no joins needed),
+        # look for a matching FilterField directly without traversing joins.
+        # This handles cases like ParentalManyToManyField where Django may create
+        # unnecessary joins even for direct fields.
+        if column.alias == self.queryset.query.get_meta().db_table or not table_aliases:
+            for search_field in search_fields:
+                if (
+                    isinstance(search_field, FilterField)
+                    and search_field.get_attname(self.queryset.model) == column.target.attname
+                ):
+                    return [search_field]
+
         # The model corresponding to the table currently under consideration. We keep track of this so that we can call
         # search_field.get_field(model) to retrieve the corresponding Django model field.
         model = self.queryset.model
