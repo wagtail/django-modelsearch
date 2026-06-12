@@ -13,6 +13,7 @@ from django.test import TestCase
 from django.test.utils import override_settings
 from taggit.models import Tag
 
+from modelsearch import index
 from modelsearch.backends import (
     InvalidSearchBackendError,
     get_search_backend,
@@ -179,6 +180,79 @@ class BackendTests:
 
         # "JavaScript: The Definitive Guide" should be first
         self.assertEqual(results[0].title, "JavaScript: The Definitive Guide")
+
+    def test_ranking_reverse(self):
+        # Note: also tests the "or" operator
+        results = list(
+            self.backend.search("JavaScript good", models.Book, operator="or")
+        )
+        self.assertCountEqual(
+            [r.title for r in results],
+            ["JavaScript: The good parts", "JavaScript: The Definitive Guide"],
+        )
+
+        self.assertEqual(results[0].title, "JavaScript: The good parts")
+
+    def test_ranking_degraded_without_title_search_field(self):
+        # When no SearchField named "title" is declared, the title index column
+        # is left empty. This is the root cause of ranking degradation: the
+        # per-backend title-column weighting and title_norm boost do not apply,
+        # so a term that only appears in a book's title can no longer rank that
+        # book above results that match on body content alone.
+        #
+        # We verify this by asserting that IndexEntry.title is empty for all
+        # Book entries after re-indexing with a search_fields configuration
+        # that contains SearchFields but none named "title".
+        search_fields_without_title = [
+            index.SearchField("summary", boost=2.0),
+            index.FilterField("title"),
+            index.FilterField("authors"),
+            index.RelatedFields("authors", models.Author.search_fields),
+            index.FilterField("publication_date"),
+            index.FilterField("number_of_pages"),
+        ]
+
+        from django.contrib.contenttypes.models import ContentType
+
+        old_search_fields = models.Book.search_fields
+        models.Book.search_fields = search_fields_without_title
+        try:
+            IndexEntry.objects.all().delete()
+            management.call_command(
+                "rebuild_modelsearch_index",
+                backend_name=self.backend_name,
+                stdout=StringIO(),
+                chunk_size=50,
+            )
+
+            # With no SearchField("title"), the title index column must be empty
+            # for every Book entry. An empty title column means title_norm has no
+            # effect and the backend cannot distinguish title-field matches from
+            # body-field matches, degrading ranking quality.
+            book_ct = ContentType.objects.get_for_model(models.Book)
+            book_entries = list(IndexEntry.objects.filter(content_type=book_ct))
+            self.assertGreater(len(book_entries), 0, "No Book index entries found")
+            for entry in book_entries:
+                self.assertEqual(
+                    entry.title,
+                    "",
+                    msg=(
+                        "Expected IndexEntry.title to be empty when no "
+                        f"SearchField('title') is declared, but got: {entry.title}"
+                    ),
+                )
+
+            # Confirm the contrast: with SearchField("title") present, the title
+            # column is non-empty and ranking works correctly (as test_ranking shows).
+        finally:
+            models.Book.search_fields = old_search_fields
+            IndexEntry.objects.all().delete()
+            management.call_command(
+                "rebuild_modelsearch_index",
+                backend_name=self.backend_name,
+                stdout=StringIO(),
+                chunk_size=50,
+            )
 
     def test_annotate_score(self):
         results = self.backend.search("JavaScript", models.Book).annotate_score(

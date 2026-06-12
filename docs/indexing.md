@@ -48,6 +48,27 @@ class Person(index.Indexed, models.Model):
 
 This will make sure direct name matches will always out-rank mentions of the person in other people's biographies.
 
+## The `title` search field
+
+The field name `"title"` is special in Django ModelSearch. A `SearchField` named `"title"` populates the dedicated **title index column**, which is stored separately from the body content and is used to improve ranking quality.
+
+All other `SearchField` names populate the **body column**.
+
+If you omit `index.SearchField('title')` from your `search_fields`, the title column will be left empty, which degrades ranking quality for searches against that model. Django ModelSearch will emit a system check warning (`modelsearch.W005`) when this is the case.
+
+For example:
+
+```python
+class Article(index.Indexed, models.Model):
+    title = models.CharField(max_length=255)
+    body = models.TextField()
+
+    search_fields = [
+        index.SearchField('title'),  # populates the title index column
+        index.SearchField('body'),   # populates the body index column
+    ]
+```
+
 ## Indexing callables
 
 You can also pass callable methods to `index.SearchField` which can be helpful for cleaning up text for the search engine:

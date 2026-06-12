@@ -184,6 +184,20 @@ class Indexed:
                         id="modelsearch.W004",
                     )
                 )
+        search_fields = cls.get_searchable_search_fields()
+        if search_fields and not any(f.field_name == "title" for f in search_fields):
+            errors.append(
+                checks.Warning(
+                    f"{cls.__name__}.search_fields does not contain a SearchField named 'title'. "
+                    "The title index column will be empty.",
+                    hint=(
+                        f"Add index.SearchField('title') to {cls.__name__}.search_fields to populate "
+                        "the title index column, which is used for ranking search results."
+                    ),
+                    obj=cls,
+                    id="modelsearch.W005",
+                )
+            )
         return errors
 
     search_fields = []

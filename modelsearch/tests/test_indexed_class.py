@@ -105,3 +105,19 @@ class TestSearchFields(TestCase):
             ]
             errors = models.Book.check()
             self.assertEqual(errors, expected_errors)
+
+    def test_checking_missing_title_search_field(self):
+        with patch_search_fields(models.Book, [index.SearchField("summary")]):
+            errors = models.Book.check()
+            w005_errors = [e for e in errors if e.id == "modelsearch.W005"]
+            self.assertEqual(len(w005_errors), 1)
+            self.assertIn("title", w005_errors[0].msg)
+
+    def test_no_warning_when_title_search_field_present(self):
+        with patch_search_fields(
+            models.Book,
+            [index.SearchField("title"), index.SearchField("summary")],
+        ):
+            errors = models.Book.check()
+            w005_errors = [e for e in errors if e.id == "modelsearch.W005"]
+            self.assertEqual(w005_errors, [])
