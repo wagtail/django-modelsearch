@@ -3,6 +3,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 
+from modelsearch.conf import get_app_config
+
 
 class Command(BaseCommand):
     help = "Enable pg_trgm and unaccent extensions and create GIN trigram indexes for fuzzy search."
@@ -13,6 +15,9 @@ class Command(BaseCommand):
                 "This command only works with PostgreSQL databases. "
                 f"Current database vendor: {connection.vendor}"
             )
+
+        IndexEntry = get_app_config().get_model("IndexEntry", require_ready=False)
+        index_table = IndexEntry._meta.db_table
 
         # Enable pg_trgm extension
         with connection.cursor() as cursor:
@@ -39,16 +44,18 @@ class Command(BaseCommand):
                     "  CREATE EXTENSION IF NOT EXISTS pg_trgm;"
                 ) from e
 
+        quoted_table = connection.ops.quote_name(index_table)
+
         # Create accent-sensitive GIN indexes (for Fuzzy() without unaccent=True)
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "CREATE INDEX IF NOT EXISTS modelsearch_title_text_trgm "
-                    "ON modelsearch_indexentry USING gin (title_text gin_trgm_ops);"
+                    f"CREATE INDEX IF NOT EXISTS modelsearch_title_text_trgm "
+                    f"ON {quoted_table} USING gin (title_text gin_trgm_ops);"
                 )
                 cursor.execute(
-                    "CREATE INDEX IF NOT EXISTS modelsearch_body_text_trgm "
-                    "ON modelsearch_indexentry USING gin (body_text gin_trgm_ops);"
+                    f"CREATE INDEX IF NOT EXISTS modelsearch_body_text_trgm "
+                    f"ON {quoted_table} USING gin (body_text gin_trgm_ops);"
                 )
             self.stdout.write(
                 self.style.SUCCESS("Created accent-sensitive GIN trigram indexes.")
@@ -60,12 +67,12 @@ class Command(BaseCommand):
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "CREATE INDEX IF NOT EXISTS modelsearch_title_text_unaccent_trgm "
-                    "ON modelsearch_indexentry USING gin (f_unaccent(title_text) gin_trgm_ops);"
+                    f"CREATE INDEX IF NOT EXISTS modelsearch_title_text_unaccent_trgm "
+                    f"ON {quoted_table} USING gin (f_unaccent(title_text) gin_trgm_ops);"
                 )
                 cursor.execute(
-                    "CREATE INDEX IF NOT EXISTS modelsearch_body_text_unaccent_trgm "
-                    "ON modelsearch_indexentry USING gin (f_unaccent(body_text) gin_trgm_ops);"
+                    f"CREATE INDEX IF NOT EXISTS modelsearch_body_text_unaccent_trgm "
+                    f"ON {quoted_table} USING gin (f_unaccent(body_text) gin_trgm_ops);"
                 )
             self.stdout.write(
                 self.style.SUCCESS("Created accent-insensitive GIN trigram indexes.")
