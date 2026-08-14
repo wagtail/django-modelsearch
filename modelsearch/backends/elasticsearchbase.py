@@ -485,6 +485,64 @@ class ElasticsearchBaseIndex(BaseIndex):
         except self.backend.NotFoundError:
             pass  # Document doesn't exist, ignore this exception
 
+    def process_mptree_path_updated(self, model, old_path, new_path):
+        """
+        Handle a treebeard.mp_tree.path_updated signal by updating the path and depth fields
+        for all affected nodes in the index.
+        """
+        self.refresh()  # Ensure that any pending changes are visible before we run the update_by_query
+
+        mapping = self.mapping_class(model)
+        search_fields = model.get_search_fields()
+        path_search_fields = [
+            field for field in search_fields if field.field_name == "path"
+        ]
+
+        # We need a FilterField("path") in search_fields, otherwise we can't perform the query to
+        # do the update - in which case we won't be able to do any tree-based filtering anyhow, so
+        # the whole point of keeping path updated becomes moot.
+        if not any(isinstance(field, FilterField) for field in path_search_fields):
+            return
+
+        script_lines = []
+        script_params = {
+            "old": old_path,
+            "new": new_path,
+        }
+        for search_field in path_search_fields:
+            field_name = mapping.get_field_column_name(search_field)
+            script_lines.append(
+                f"ctx._source['{field_name}'] = params.new + ctx._source['{field_name}'].substring(params.old.length());"
+            )
+
+        if len(old_path) != len(new_path):
+            # we also need to update the depth field
+            depth_search_fields = [
+                field for field in search_fields if field.field_name == "depth"
+            ]
+            if depth_search_fields:
+                script_params["depth_delta"] = (
+                    len(new_path) - len(old_path)
+                ) // model.steplen
+                for search_field in depth_search_fields:
+                    field_name = mapping.get_field_column_name(search_field)
+                    script_lines.append(
+                        f"ctx._source['{field_name}'] = ctx._source['{field_name}'] + params.depth_delta;"
+                    )
+
+        self.es.update_by_query(
+            index=self.name,
+            body={
+                "query": {"prefix": {"path_filter": old_path}},
+                "script": {
+                    "source": "\n".join(script_lines),
+                    "lang": "painless",
+                    "params": script_params,
+                },
+            },
+            conflicts="proceed",
+        )
+
     def reset(self):
         # Delete old index
         self.delete()

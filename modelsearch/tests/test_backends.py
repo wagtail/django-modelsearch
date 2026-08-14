@@ -1071,6 +1071,29 @@ class BackendTests(BackendTestSetupMixin):
                     [],
                 )
 
+    def test_get_descendants_filter_after_move(self):
+        # for model in (models.MPAnimal, models.NSAnimal):
+        for model in (models.MPAnimal,):
+            with self.subTest(model=model):
+                index = self.backend.get_index_for_model(model)
+
+                # Create Labradoodle as a child of Animal
+                animal = model.objects.get(name="Animal")
+                labradoodle = animal.add_child(name="Labradoodle")
+
+                # Move Labradoodle to be a child of Dog
+                dog = model.objects.get(name="Dog")
+                labradoodle.move(dog, pos="first-child")
+                index.refresh()
+
+                # If the move operation was successfully reflected in the search index,
+                # Labradoodle should now be returned as a descendant of Dog
+                results = self.backend.search("labradoodle", dog.get_descendants())
+                self.assertCountEqual(
+                    [r.name for r in results],
+                    ["Labradoodle"],
+                )
+
     def test_get_siblings_filter(self):
         for model in (models.MPAnimal, models.NSAnimal):
             with self.subTest(model=model):
