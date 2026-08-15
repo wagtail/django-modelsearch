@@ -1123,6 +1123,22 @@ class BackendTests(BackendTestSetupMixin):
                     [],
                 )
 
+    def test_search_after_delete_subtree(self):
+        for model in (models.MPAnimal, models.NSAnimal):
+            with self.subTest(model=model):
+                index = self.backend.get_index_for_model(model)
+
+                result_count = self.backend.search("dog", model).count()
+                self.assertEqual(result_count, 1)
+
+                # Delete the Mammal subtree
+                mammal = model.objects.get(name="Mammal")
+                mammal.delete()
+                index.refresh()
+
+                result_count = self.backend.search("dog", model).count()
+                self.assertEqual(result_count, 0)
+
     # ORDER BY RELEVANCE
 
     def test_order_by_relevance_match_all(self):
