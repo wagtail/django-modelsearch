@@ -67,7 +67,14 @@ def ns_tree_subtree_moved_signal_handler(
 
 
 def ns_tree_tree_ids_incremented_signal_handler(sender, min_tree_id, **kwargs):
-    print("ns_tree_tree_ids_incremented_signal_handler called")
+    # Do not enqueue this as an asynchronous task, because an NS_Node move operation involves multiple signals
+    # that need to be processed in order
+    for _backend_name, backend in index.get_search_backends_with_name(
+        with_auto_update=True
+    ):
+        index_obj = backend.get_index_for_model(sender)
+        if hasattr(index_obj, "process_nstree_tree_ids_incremented"):
+            index_obj.process_nstree_tree_ids_incremented(sender, min_tree_id)
 
 
 def any_index_has_method(model, method_name):

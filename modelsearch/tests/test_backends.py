@@ -1093,6 +1093,29 @@ class BackendTests(BackendTestSetupMixin):
                     ["Labradoodle"],
                 )
 
+    def test_get_descendants_filter_after_move_to_root(self):
+        for model in (models.MPAnimal, models.NSAnimal):
+            with self.subTest(model=model):
+                index = self.backend.get_index_for_model(model)
+
+                # Create Mushroom as a child of Animal
+                animal = model.objects.get(name="Animal")
+                mushroom = animal.add_child(name="Mushroom")
+                # Move Mushroom to be a root node ordered before Animal
+                mushroom.move(animal, pos="first-sibling")
+                index.refresh()
+
+                # Under the NS_Node implementation, Animal now has a tree_id of 2 and a
+                # tree_ids_incremented signal was sent. Searching descendants of Animal will filter
+                # by tree_id=2, which will only succeed on non-database backends if the
+                # tree_ids_incremented signal was appropriately handled.
+                animal = model.objects.get(name="Animal")
+                results = self.backend.search("dog", animal.get_descendants())
+                self.assertCountEqual(
+                    [r.name for r in results],
+                    ["Dog"],
+                )
+
     def test_get_siblings_filter(self):
         for model in (models.MPAnimal, models.NSAnimal):
             with self.subTest(model=model):

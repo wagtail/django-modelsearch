@@ -690,6 +690,46 @@ class ElasticsearchBaseIndex(BaseIndex):
             conflicts="proceed",
         )
 
+    def process_nstree_tree_ids_incremented(self, model, min_tree_id):
+        """
+        Handle a treebeard.ns_tree.tree_ids_incremented signal by updating the tree_id values
+        for all affected nodes in the index.
+        """
+        self.refresh()  # Ensure that any pending changes are visible before we run the update_by_query
+
+        mapping = self.mapping_class(model)
+        search_fields = model.get_search_fields()
+        tree_id_search_fields = [
+            field for field in search_fields if field.field_name == "tree_id"
+        ]
+
+        # search_fields must contain a FilterField for tree_id, otherwise we
+        # can't perform the query to do the update - in which case we won't be able to do any
+        # tree-based filtering anyhow, so keeping the index in sync becomes moot.
+        if not any(isinstance(field, FilterField) for field in tree_id_search_fields):
+            return
+
+        query = {
+            "range": {"tree_id_filter": {"gte": min_tree_id}},
+        }
+
+        script_lines = []
+        for search_field in tree_id_search_fields:
+            tree_id_name = mapping.get_field_column_name(search_field)
+            script_lines.append(f"ctx._source['{tree_id_name}'] += 1;")
+
+        self.es.update_by_query(
+            index=self.name,
+            body={
+                "query": query,
+                "script": {
+                    "source": "\n".join(script_lines),
+                    "lang": "painless",
+                },
+            },
+            conflicts="proceed",
+        )
+
     def reset(self):
         # Delete old index
         self.delete()
