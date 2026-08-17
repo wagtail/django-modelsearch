@@ -1072,8 +1072,7 @@ class BackendTests(BackendTestSetupMixin):
                 )
 
     def test_get_descendants_filter_after_move(self):
-        # for model in (models.MPAnimal, models.NSAnimal):
-        for model in (models.MPAnimal,):
+        for model in (models.MPAnimal, models.NSAnimal):
             with self.subTest(model=model):
                 index = self.backend.get_index_for_model(model)
 
