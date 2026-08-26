@@ -169,6 +169,14 @@ class BaseSearchQueryCompiler:
                                 search_fields = search_field.fields
                                 path.append(search_field)
                                 break
+                        else:
+                            # The M2M join was optimised into a single join step
+                            # (e.g. when filtering on the M2M through table's own columns).
+                            # Consume it and descend into the RelatedFields definition.
+                            model = field.related_model
+                            search_fields = search_field.fields
+                            path.append(search_field)
+                            break
 
                 else:
                     # no matching RelatedFields entry found
