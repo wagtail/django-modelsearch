@@ -35,9 +35,18 @@ def post_delete_signal_handler(instance, **kwargs):
 
 
 def mp_tree_path_updated_signal_handler(sender, old_path, new_path, **kwargs):
-    mp_tree_path_updated_task.enqueue(
-        sender._meta.app_label, sender._meta.model_name, old_path, new_path
-    )
+    for backend_name, backend in index.get_search_backends_with_name(
+        with_auto_update=True
+    ):
+        index_obj = backend.get_index_for_model(sender)
+        if hasattr(index_obj, "process_mptree_path_updated"):
+            mp_tree_path_updated_task.enqueue(
+                backend_name,
+                sender._meta.app_label,
+                sender._meta.model_name,
+                old_path,
+                new_path,
+            )
 
 
 def ns_tree_gap_altered_signal_handler(sender, tree_id, start_index, offset, **kwargs):
