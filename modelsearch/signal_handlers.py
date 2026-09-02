@@ -77,20 +77,6 @@ def ns_tree_tree_ids_incremented_signal_handler(sender, min_tree_id, **kwargs):
             index_obj.process_nstree_tree_ids_incremented(sender, min_tree_id)
 
 
-def any_index_has_method(model, method_name):
-    """
-    Returns True if any of the registered auto-updating backends have an index for the given model
-    with a method of the given name.
-    """
-    for _backend_name, backend in index.get_search_backends_with_name(
-        with_auto_update=True
-    ):
-        index_obj = backend.get_index_for_model(model)
-        if hasattr(index_obj, method_name):
-            return True
-    return False
-
-
 def register_signal_handlers():
     # Loop through list and register signal handlers for each one
     for model in index.get_indexed_models():
@@ -101,19 +87,11 @@ def register_signal_handlers():
         post_delete.connect(post_delete_signal_handler, sender=model)
 
         if MP_Node and issubclass(model, MP_Node):
-            if any_index_has_method(model, "process_mptree_path_updated"):
-                path_updated.connect(mp_tree_path_updated_signal_handler, sender=model)
+            path_updated.connect(mp_tree_path_updated_signal_handler, sender=model)
 
         if NS_Node and issubclass(model, NS_Node):
-            if any_index_has_method(model, "process_nstree_gap_altered"):
-                gap_altered.connect(ns_tree_gap_altered_signal_handler, sender=model)
-
-            # if any_index_has_method(model, "process_nstree_subtree_moved"):
-            #     subtree_moved.connect(ns_tree_subtree_moved_signal_handler, sender=model)
+            gap_altered.connect(ns_tree_gap_altered_signal_handler, sender=model)
             subtree_moved.connect(ns_tree_subtree_moved_signal_handler, sender=model)
-
-            # if any_index_has_method(model, "process_nstree_tree_ids_incremented"):
-            #     tree_ids_incremented.connect(ns_tree_tree_ids_incremented_signal_handler, sender=model)
             tree_ids_incremented.connect(
                 ns_tree_tree_ids_incremented_signal_handler, sender=model
             )
