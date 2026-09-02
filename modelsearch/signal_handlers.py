@@ -34,30 +34,41 @@ def post_delete_signal_handler(instance, **kwargs):
     index.remove_object(instance)
 
 
-def mp_tree_path_updated_signal_handler(sender, old_path, new_path, **kwargs):
+def indexes_with_method(model, method_name):
+    """
+    Returns an iterator of (backend_name, index) tuples for all auto-updating indexes for the given
+    model that have the given method
+    """
+    indexes = []
     for backend_name, backend in index.get_search_backends_with_name(
         with_auto_update=True
     ):
-        index_obj = backend.get_index_for_model(sender)
-        if hasattr(index_obj, "process_mptree_path_updated"):
-            mp_tree_path_updated_task.enqueue(
-                backend_name,
-                sender._meta.app_label,
-                sender._meta.model_name,
-                old_path,
-                new_path,
-            )
+        index_obj = backend.get_index_for_model(model)
+        if hasattr(index_obj, method_name):
+            yield (backend_name, index_obj)
+            indexes.append((backend_name, index_obj))
+
+
+def mp_tree_path_updated_signal_handler(sender, old_path, new_path, **kwargs):
+    for backend_name, _index in indexes_with_method(
+        sender, "process_mptree_path_updated"
+    ):
+        mp_tree_path_updated_task.enqueue(
+            backend_name,
+            sender._meta.app_label,
+            sender._meta.model_name,
+            old_path,
+            new_path,
+        )
 
 
 def ns_tree_gap_altered_signal_handler(sender, tree_id, start_index, offset, **kwargs):
     # Do not enqueue this as an asynchronous task, because an NS_Node move operation involves multiple signals
     # that need to be processed in order
-    for _backend_name, backend in index.get_search_backends_with_name(
-        with_auto_update=True
+    for _backend_name, index_obj in indexes_with_method(
+        sender, "process_nstree_gap_altered"
     ):
-        index_obj = backend.get_index_for_model(sender)
-        if hasattr(index_obj, "process_nstree_gap_altered"):
-            index_obj.process_nstree_gap_altered(sender, tree_id, start_index, offset)
+        index_obj.process_nstree_gap_altered(sender, tree_id, start_index, offset)
 
 
 def ns_tree_subtree_moved_signal_handler(
@@ -65,25 +76,21 @@ def ns_tree_subtree_moved_signal_handler(
 ):
     # Do not enqueue this as an asynchronous task, because an NS_Node move operation involves multiple signals
     # that need to be processed in order
-    for _backend_name, backend in index.get_search_backends_with_name(
-        with_auto_update=True
+    for _backend_name, index_obj in indexes_with_method(
+        sender, "process_nstree_subtree_moved"
     ):
-        index_obj = backend.get_index_for_model(sender)
-        if hasattr(index_obj, "process_nstree_subtree_moved"):
-            index_obj.process_nstree_subtree_moved(
-                sender, tree_id, lft, rgt, target_tree_id, index_offset, depth_offset
-            )
+        index_obj.process_nstree_subtree_moved(
+            sender, tree_id, lft, rgt, target_tree_id, index_offset, depth_offset
+        )
 
 
 def ns_tree_tree_ids_incremented_signal_handler(sender, min_tree_id, **kwargs):
     # Do not enqueue this as an asynchronous task, because an NS_Node move operation involves multiple signals
     # that need to be processed in order
-    for _backend_name, backend in index.get_search_backends_with_name(
-        with_auto_update=True
+    for _backend_name, index_obj in indexes_with_method(
+        sender, "process_nstree_tree_ids_incremented"
     ):
-        index_obj = backend.get_index_for_model(sender)
-        if hasattr(index_obj, "process_nstree_tree_ids_incremented"):
-            index_obj.process_nstree_tree_ids_incremented(sender, min_tree_id)
+        index_obj.process_nstree_tree_ids_incremented(sender, min_tree_id)
 
 
 def register_signal_handlers():
