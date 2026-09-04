@@ -1,7 +1,7 @@
 from django.db.models.signals import post_delete, post_save
 
 from . import index
-from .tasks import insert_or_update_object_task, mp_tree_path_updated_task
+from .tasks import insert_or_update_object_task
 
 
 try:
@@ -48,16 +48,10 @@ def indexes_with_method(model, method_name):
 
 
 def mp_tree_path_updated_signal_handler(sender, old_path, new_path, **kwargs):
-    for backend_name, _index in indexes_with_method(
+    for _backend_name, index_obj in indexes_with_method(
         sender, "process_mptree_path_updated"
     ):
-        mp_tree_path_updated_task.enqueue(
-            backend_name,
-            sender._meta.app_label,
-            sender._meta.model_name,
-            old_path,
-            new_path,
-        )
+        index_obj.process_mptree_path_updated(sender, old_path, new_path)
 
 
 def ns_tree_gap_altered_signal_handler(sender, tree_id, start_index, offset, **kwargs):

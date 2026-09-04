@@ -1117,23 +1117,6 @@ class BackendTests(BackendTestSetupMixin):
                     ["Labradoodle", "Mini Labradoodle"],
                 )
 
-    def test_path_updated_task_only_enqueued_for_supporting_backends(self):
-        # mp_tree_path_updated_task should only be enqueued for backends whose index
-        # implements process_mptree_path_updated - it would be a no-op for any others
-        index_obj = self.backend.get_index_for_model(models.MPAnimal)
-        supports_path_updates = hasattr(index_obj, "process_mptree_path_updated")
-
-        animal = models.MPAnimal.objects.get(name="Animal")
-        labradoodle = animal.add_child(name="Labradoodle")
-        dog = models.MPAnimal.objects.get(name="Dog")
-
-        with mock.patch(
-            "modelsearch.signal_handlers.mp_tree_path_updated_task"
-        ) as mock_task:
-            labradoodle.move(dog, pos="first-child")
-
-        self.assertEqual(bool(mock_task.enqueue.called), supports_path_updates)
-
     def test_get_descendants_filter_after_move_to_root(self):
         for model in (models.MPAnimal, models.NSAnimal):
             with self.subTest(model=model):
