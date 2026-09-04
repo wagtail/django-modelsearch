@@ -39,14 +39,12 @@ def indexes_with_method(model, method_name):
     Returns an iterator of (backend_name, index) tuples for all auto-updating indexes for the given
     model that have the given method
     """
-    indexes = []
     for backend_name, backend in index.get_search_backends_with_name(
         with_auto_update=True
     ):
         index_obj = backend.get_index_for_model(model)
         if hasattr(index_obj, method_name):
             yield (backend_name, index_obj)
-            indexes.append((backend_name, index_obj))
 
 
 def mp_tree_path_updated_signal_handler(sender, old_path, new_path, **kwargs):
