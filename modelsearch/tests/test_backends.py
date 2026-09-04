@@ -1093,6 +1093,30 @@ class BackendTests(BackendTestSetupMixin):
                     ["Labradoodle"],
                 )
 
+    def test_get_descendants_filter_after_move_nonleaf(self):
+        for model in (models.MPAnimal, models.NSAnimal):
+            with self.subTest(model=model):
+                index = self.backend.get_index_for_model(model)
+
+                # Create Labradoodle as a child of Animal
+                animal = model.objects.get(name="Animal")
+                labradoodle = animal.add_child(name="Labradoodle")
+                labradoodle.add_child(name="Mini Labradoodle")
+
+                # Move Labradoodle to be a child of Dog
+                dog = model.objects.get(name="Dog")
+                labradoodle.move(dog, pos="first-child")
+                index.refresh()
+
+                # If the move operation was successfully reflected in the search index,
+                # both Labradoodle and Mini Labradoodle should now be returned as descendants
+                # of Dog
+                results = self.backend.search("labradoodle", dog.get_descendants())
+                self.assertCountEqual(
+                    [r.name for r in results],
+                    ["Labradoodle", "Mini Labradoodle"],
+                )
+
     def test_path_updated_task_only_enqueued_for_supporting_backends(self):
         # mp_tree_path_updated_task should only be enqueued for backends whose index
         # implements process_mptree_path_updated - it would be a no-op for any others

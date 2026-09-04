@@ -648,7 +648,7 @@ class ElasticsearchBaseIndex(BaseIndex):
                 "filter": [
                     {"term": {"tree_id_filter": tree_id}},
                     {"range": {"lft_filter": {"gte": lft}}},
-                    {"range": {"rgt_filter": {"gte": rgt}}},
+                    {"range": {"rgt_filter": {"lte": rgt}}},
                 ]
             }
         }
