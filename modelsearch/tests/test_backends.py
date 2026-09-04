@@ -458,12 +458,11 @@ class BackendTests(BackendTestSetupMixin):
         )
 
     def test_autocomplete_hyphenated_term(self):
-        book = models.Book.objects.create(
+        models.Book.objects.create(
             title="Poseidon-1234ABC",
             number_of_pages=350,
             publication_date=date(1961, 11, 10),
         )
-        self.backend.add(book)
         self.backend.get_index_for_model(models.Book).refresh()
 
         results = self.backend.autocomplete("poseidon-1234", models.Book)
@@ -476,12 +475,11 @@ class BackendTests(BackendTestSetupMixin):
         )
 
     def test_autocomplete_trailing_hyphen(self):
-        book = models.Book.objects.create(
+        models.Book.objects.create(
             title="Poseidon-1234ABC",
             number_of_pages=350,
             publication_date=date(1961, 11, 10),
         )
-        self.backend.add(book)
         self.backend.get_index_for_model(models.Book).refresh()
 
         results = self.backend.autocomplete("poseidon-", models.Book)
@@ -1073,6 +1071,75 @@ class BackendTests(BackendTestSetupMixin):
                     [],
                 )
 
+    def test_get_descendants_filter_after_move(self):
+        for model in (models.MPAnimal, models.NSAnimal):
+            with self.subTest(model=model):
+                index = self.backend.get_index_for_model(model)
+
+                # Create Labradoodle as a child of Animal
+                animal = model.objects.get(name="Animal")
+                labradoodle = animal.add_child(name="Labradoodle")
+
+                # Move Labradoodle to be a child of Dog
+                dog = model.objects.get(name="Dog")
+                labradoodle.move(dog, pos="first-child")
+                index.refresh()
+
+                # If the move operation was successfully reflected in the search index,
+                # Labradoodle should now be returned as a descendant of Dog
+                results = self.backend.search("labradoodle", dog.get_descendants())
+                self.assertCountEqual(
+                    [r.name for r in results],
+                    ["Labradoodle"],
+                )
+
+    def test_get_descendants_filter_after_move_nonleaf(self):
+        for model in (models.MPAnimal, models.NSAnimal):
+            with self.subTest(model=model):
+                index = self.backend.get_index_for_model(model)
+
+                # Create Labradoodle as a child of Animal
+                animal = model.objects.get(name="Animal")
+                labradoodle = animal.add_child(name="Labradoodle")
+                labradoodle.add_child(name="Mini Labradoodle")
+
+                # Move Labradoodle to be a child of Dog
+                dog = model.objects.get(name="Dog")
+                labradoodle.move(dog, pos="first-child")
+                index.refresh()
+
+                # If the move operation was successfully reflected in the search index,
+                # both Labradoodle and Mini Labradoodle should now be returned as descendants
+                # of Dog
+                results = self.backend.search("labradoodle", dog.get_descendants())
+                self.assertCountEqual(
+                    [r.name for r in results],
+                    ["Labradoodle", "Mini Labradoodle"],
+                )
+
+    def test_get_descendants_filter_after_move_to_root(self):
+        for model in (models.MPAnimal, models.NSAnimal):
+            with self.subTest(model=model):
+                index = self.backend.get_index_for_model(model)
+
+                # Create Mushroom as a child of Animal
+                animal = model.objects.get(name="Animal")
+                mushroom = animal.add_child(name="Mushroom")
+                # Move Mushroom to be a root node ordered before Animal
+                mushroom.move(animal, pos="first-sibling")
+                index.refresh()
+
+                # Under the NS_Node implementation, Animal now has a tree_id of 2 and a
+                # tree_ids_incremented signal was sent. Searching descendants of Animal will filter
+                # by tree_id=2, which will only succeed on non-database backends if the
+                # tree_ids_incremented signal was appropriately handled.
+                animal = model.objects.get(name="Animal")
+                results = self.backend.search("dog", animal.get_descendants())
+                self.assertCountEqual(
+                    [r.name for r in results],
+                    ["Dog"],
+                )
+
     def test_get_siblings_filter(self):
         for model in (models.MPAnimal, models.NSAnimal):
             with self.subTest(model=model):
@@ -1101,6 +1168,22 @@ class BackendTests(BackendTestSetupMixin):
                     [r.name for r in results],
                     [],
                 )
+
+    def test_search_after_delete_subtree(self):
+        for model in (models.MPAnimal, models.NSAnimal):
+            with self.subTest(model=model):
+                index = self.backend.get_index_for_model(model)
+
+                result_count = self.backend.search("dog", model).count()
+                self.assertEqual(result_count, 1)
+
+                # Delete the Mammal subtree
+                mammal = model.objects.get(name="Mammal")
+                mammal.delete()
+                index.refresh()
+
+                result_count = self.backend.search("dog", model).count()
+                self.assertEqual(result_count, 0)
 
     # ORDER BY RELEVANCE
 
@@ -1339,6 +1422,8 @@ class BackendTests(BackendTestSetupMixin):
             if book.id in SCIFI_BOOKS:
                 book.tags.add("Science Fiction")
 
+            # adding a related object doesn't trigger the post_save signal to reindex the book,
+            # so we need to manually add it to the index
             self.backend.add(book)
 
         index = self.backend.get_index_for_model(models.Book)
@@ -1371,15 +1456,15 @@ class BackendTests(BackendTestSetupMixin):
         # across pages (see https://github.com/wagtail/wagtail/issues/3729).
         same_rank_objects = set()
 
-        index = self.backend.get_index_for_model(models.Book)
         for i in range(10):
             obj = models.Book.objects.create(
                 title=f"Rank {i}",
                 publication_date=date(2017, 10, 18),
                 number_of_pages=100,
             )
-            index.add_item(obj)
             same_rank_objects.add(obj)
+
+        index = self.backend.get_index_for_model(models.Book)
         index.refresh()
 
         results = self.backend.search("Rank", models.Book)
@@ -1391,13 +1476,12 @@ class BackendTests(BackendTestSetupMixin):
     def test_delete(self):
         foundation = models.Novel.objects.filter(title="Foundation").first()
 
-        # Delete from the search index
-        index = self.backend.get_index_for_model(models.Novel)
-        index.delete_item(foundation)
-        index.refresh()
-
         # Delete from the database
         foundation.delete()
+
+        # Refresh the search index
+        index = self.backend.get_index_for_model(models.Novel)
+        index.refresh()
 
         # To test that the book was deleted from the index as well, we will perform the slicing check from an earlier
         # test where "Foundation" was the first result. We need to test it this way so we can pick up the case where
@@ -1691,24 +1775,30 @@ class BackendTests(BackendTestSetupMixin):
         self.assertEqual(results.count(), 1)
 
     def test_add_bulk(self):
+        # Create book records using bulk_create, so that we don't trigger the post_save signal
+        # (which would index them immediately and negate the need to call add_bulk)
         books = [
-            models.Book.objects.create(
+            models.Book(
                 title="Fifty Shades of Grey",
                 publication_date=date(2020, 1, 1),
                 number_of_pages=100,
             ),
-            models.Book.objects.create(
+            models.Book(
                 title="Fifty Shades Darker",
                 publication_date=date(2020, 2, 1),
                 number_of_pages=200,
             ),
-            models.Book.objects.create(
+            models.Book(
                 title="Fifty Shades Freed",
                 publication_date=date(2020, 3, 1),
                 number_of_pages=300,
             ),
         ]
-        self.backend.add_bulk(models.Book, books)
+        models.Book.objects.bulk_create(books)
+
+        self.backend.add_bulk(
+            models.Book, models.Book.objects.filter(title__startswith="Fifty Shades")
+        )
         self.backend.get_index_for_model(models.Book).refresh()
 
         results = self.backend.search("Fifty Shades", models.Book)
