@@ -101,6 +101,7 @@ MODELSEARCH_BACKENDS = {
             "elasticsearch9": "modelsearch.backends.elasticsearch9",
             "opensearch2": "modelsearch.backends.opensearch2",
             "opensearch3": "modelsearch.backends.opensearch3",
+            "whoosh": "modelsearch.backends.whoosh",
         }[SEARCH_BACKEND]
     }
 }
