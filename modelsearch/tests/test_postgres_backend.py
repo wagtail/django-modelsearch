@@ -1,5 +1,6 @@
 import unittest
 
+from datetime import date
 from unittest import mock
 
 from django.contrib.contenttypes.models import ContentType
@@ -8,7 +9,7 @@ from django.test import TestCase
 from django.test.utils import override_settings
 
 from modelsearch.models import IndexEntry
-from modelsearch.query import Fuzzy, Phrase
+from modelsearch.query import Fuzzy, Not, Phrase, PlainText
 from modelsearch.test.testapp import models
 from modelsearch.tests.test_backends import BackendTests, BackendTestSetupMixin
 
@@ -163,6 +164,48 @@ class TestPostgresSearchBackend(BackendTests, TestCase):
         # Now the phrase operator.
         results = self.backend.autocomplete("first <-> second", models.Book)
         self.assertCountEqual([r.title for r in results], [])
+
+    def test_search_hyphenated_term_with_number(self):
+        # Postgres indexes a number that directly follows a hyphen as a signed
+        # number ("report-77" -> 'report', '-77'), but "report 88" as 'report', '88'.
+        # Searching for the exact title should find the object either way.
+        for title in ["report-77", "report 88", "covid-19"]:
+            models.Book.objects.create(
+                title=title,
+                number_of_pages=350,
+                publication_date=date(1961, 11, 10),
+            )
+        self.backend.get_index_for_model(models.Book).refresh()
+
+        for query, expected in [
+            ("report-77", ["report-77"]),
+            ("report 77", ["report-77"]),
+            ("report-88", ["report 88"]),
+            ("report 88", ["report 88"]),
+            ("covid-19", ["covid-19"]),
+            ("-77", ["report-77"]),
+        ]:
+            with self.subTest(query=query):
+                results = self.backend.search(query, models.Book)
+                self.assertCountEqual([r.title for r in results], expected)
+
+                results = self.backend.autocomplete(query, models.Book)
+                self.assertCountEqual([r.title for r in results], expected)
+
+    def test_search_not_hyphenated_term_with_number(self):
+        for title in ["report-77", "report 88"]:
+            models.Book.objects.create(
+                title=title,
+                number_of_pages=350,
+                publication_date=date(1961, 11, 10),
+            )
+        self.backend.get_index_for_model(models.Book).refresh()
+
+        # Excluding "77" must also exclude "report-77", which is indexed as '-77'
+        results = self.backend.search(
+            Not(PlainText("77")) & PlainText("report"), models.Book
+        )
+        self.assertCountEqual([r.title for r in results], ["report 88"])
 
     @unittest.skip(
         "The Postgres backend doesn't support MatchAll as an inner expression."

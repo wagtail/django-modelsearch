@@ -520,6 +520,23 @@ class PostgresSearchQueryCompiler(BaseSearchQueryCompiler):
                     sub_field_name, field.fields
                 )  # pragma: no cover
 
+    # Postgres' text search parser treats a number that directly follows a hyphen
+    # (e.g. "page-1", "covid-19", "2020-2021") as a signed number when indexing, so
+    # the stored lexeme is "-1" rather than "1". We split search terms on hyphens
+    # (see below), so the query would otherwise look for "1" and never match.
+    NUMERIC_TERM_RE = re.compile(r"\d+(?:\.\d+)?")
+
+    def build_term_lexeme(self, term, invert=False, prefix=False):
+        lexeme = Lexeme(term, invert=invert, prefix=prefix)
+
+        if self.NUMERIC_TERM_RE.fullmatch(term):
+            # Match the number both as written and as its hyphen-prefixed (signed)
+            # form. When inverted, De Morgan's law turns the OR into an AND.
+            signed_lexeme = Lexeme(f"-{term}", invert=invert, prefix=prefix)
+            lexeme = (lexeme & signed_lexeme) if invert else (lexeme | signed_lexeme)
+
+        return lexeme
+
     def build_tsquery_content(self, query, config=None, invert=False):
         if isinstance(query, PlainText):
             terms = [term for term in re.split(r"[\s\-]+", query.query_string) if term]
@@ -528,9 +545,11 @@ class PostgresSearchQueryCompiler(BaseSearchQueryCompiler):
 
             last_term = terms.pop()
 
-            lexemes = Lexeme(last_term, invert=invert, prefix=self.LAST_TERM_IS_PREFIX)
+            lexemes = self.build_term_lexeme(
+                last_term, invert=invert, prefix=self.LAST_TERM_IS_PREFIX
+            )
             for term in terms:
-                new_lexeme = Lexeme(term, invert=invert)
+                new_lexeme = self.build_term_lexeme(term, invert=invert)
 
                 if query.operator == "and":
                     lexemes &= new_lexeme
