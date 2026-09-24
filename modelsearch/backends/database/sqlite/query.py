@@ -77,7 +77,7 @@ class Lexeme(LexemeCombinable, Value):
         super().__init__(value, output_field=output_field)
 
     def as_sql(self, compiler, connection):
-        param = self.value.replace("'", "''").replace("\\", "\\\\")
+        param = self.value.replace("'", "''").replace("\\", "\\\\").replace('"', '""')
 
         if self.prefix:
             template = '"%s"*'

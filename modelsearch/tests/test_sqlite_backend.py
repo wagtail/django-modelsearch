@@ -69,6 +69,14 @@ class TestSQLiteSearchBackend(BackendTests, TestCase):
     def test_search_and_match_all(self):
         return super().test_search_and_match_all()
 
+    def test_search_with_double_quote(self):
+        """
+        Searching with a double quote should not raise an OperationalError.
+        See: https://github.com/wagtail/wagtail/issues/13227
+        """
+        results = self.backend.search('"', models.Book)
+        self.assertEqual(list(results), [])
+
     def test_reset_indexes(self):
         """
         After running backend.reset_indexes(), search should return no results.
