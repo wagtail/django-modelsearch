@@ -381,6 +381,8 @@ class SQLiteSearchQueryCompiler(BaseSearchQueryCompiler):
                 return None
 
             last_term = terms.pop()
+            if "-" in last_term and last_term.rsplit("-", 1)[1].isdigit():
+                last_term = f'"{last_term}"'
 
             lexemes = Lexeme(
                 last_term, prefix=self.LAST_TERM_IS_PREFIX
