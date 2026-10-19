@@ -3,7 +3,7 @@ from unittest import mock
 
 from django.test import TestCase, override_settings
 
-from modelsearch import index
+from modelsearch import index, signal_handlers
 from modelsearch.test.testapp import models
 
 
@@ -235,3 +235,51 @@ class TestSignalHandlersSearchDisabled(TestCase):
 
         self.assertEqual(backend().add.call_count, 0)
         self.assertIsNone(backend().add.call_args)
+
+
+class TestRegisterSignalHandlersAutoUpdate(TestCase):
+    @mock.patch("modelsearch.signal_handlers.post_delete")
+    @mock.patch("modelsearch.signal_handlers.post_save")
+    def test_registers_handlers_by_default(self, post_save, post_delete):
+        signal_handlers.register_signal_handlers()
+
+        post_save.connect.assert_any_call(
+            signal_handlers.post_save_signal_handler, sender=models.Book
+        )
+        post_delete.connect.assert_any_call(
+            signal_handlers.post_delete_signal_handler, sender=models.Book
+        )
+
+    @override_settings(
+        MODELSEARCH_BACKENDS={
+            "default": {
+                "BACKEND": "modelsearch.backends.database",
+                "AUTO_UPDATE": False,
+            }
+        }
+    )
+    @mock.patch("modelsearch.signal_handlers.post_delete")
+    @mock.patch("modelsearch.signal_handlers.post_save")
+    def test_no_handlers_when_auto_update_disabled(self, post_save, post_delete):
+        signal_handlers.register_signal_handlers()
+
+        post_save.connect.assert_not_called()
+        post_delete.connect.assert_not_called()
+
+    @override_settings(
+        MODELSEARCH_BACKENDS={
+            "default": {
+                "BACKEND": "modelsearch.backends.database",
+                "AUTO_UPDATE": False,
+            },
+            "other": {"BACKEND": "modelsearch.backends.database"},
+        }
+    )
+    @mock.patch("modelsearch.signal_handlers.post_delete")
+    @mock.patch("modelsearch.signal_handlers.post_save")
+    def test_handlers_when_one_backend_auto_updates(self, post_save, post_delete):
+        signal_handlers.register_signal_handlers()
+
+        post_save.connect.assert_any_call(
+            signal_handlers.post_save_signal_handler, sender=models.Book
+        )

@@ -3,6 +3,7 @@ import logging
 from django.db.models.signals import post_delete, post_save
 
 from . import index
+from .conf import get_app_config
 from .tasks import insert_or_update_object_task
 
 
@@ -126,6 +127,13 @@ def ns_tree_tree_ids_incremented_signal_handler(sender, min_tree_id, **kwargs):
 
 
 def register_signal_handlers():
+    # Don't hook into saves and deletes if auto-update is disabled for every backend
+    backends_config = get_app_config().get_search_backend_config()
+    if all(
+        config.get("AUTO_UPDATE", True) is False for config in backends_config.values()
+    ):
+        return
+
     # Loop through list and register signal handlers for each one
     for model in index.get_indexed_models():
         if not getattr(model, "search_auto_update", True):
