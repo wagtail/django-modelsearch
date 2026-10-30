@@ -1,8 +1,11 @@
 import unittest
 
+from unittest.mock import patch
+
 from django.test import TestCase
 from django.test.utils import override_settings
 
+from modelsearch import index
 from modelsearch.test.testapp import models
 
 from .test_backends import BackendTests
@@ -81,3 +84,21 @@ class TestDBBackend(BackendTests, TestCase):
         self.backend.reset_indexes()
         results = self.backend.search("JavaScript", models.Book)
         self.assertEqual(results.count(), 2)
+
+    def test_filter_on_many_to_many_through_attname(self):
+        tolkien = models.Author.objects.get(name="J. R. R. Tolkien")
+        search_fields = [
+            index.SearchField("title"),
+            index.FilterField("author_id"),
+        ]
+        with patch.object(models.Book, "search_fields", search_fields):
+            results = list(
+                self.backend.search(
+                    "hobbit",
+                    models.Book.objects.filter(authors=tolkien),
+                )
+            )
+            self.assertCountEqual(
+                [r.title for r in results],
+                ["The Hobbit"],
+            )
