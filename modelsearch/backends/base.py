@@ -140,6 +140,33 @@ class BaseSearchQueryCompiler:
                 # in the RelatedFields("novel") list.
                 pass
             else:
+                if not table_aliases:
+                    # When filtering directly on a ManyToManyField or ParentalManyToManyField
+                    # (e.g. `Book.objects.filter(authors=author)`), Django only joins the
+                    # intermediate through table and filters on its foreign key column
+                    # (`column.target`), without joining the target table.
+                    m2m_field = next(
+                        (
+                            f
+                            for f in model._meta.get_fields()
+                            if getattr(f, "many_to_many", False)
+                            and hasattr(f, "path_infos")
+                            and len(f.path_infos) >= 2
+                            and f.path_infos[0].join_field == join_field
+                            and f.path_infos[1].join_field == column.target
+                        ),
+                        None,
+                    )
+                    if m2m_field is not None:
+                        for search_field in search_fields:
+                            if isinstance(search_field, FilterField) and (
+                                search_field.field_name == m2m_field.name
+                                or search_field.get_attname(model)
+                                == column.target.attname
+                            ):
+                                path.append(search_field)
+                                return path
+
                 # This join corresponds to a relation such as a ForeignKey or ManyToManyField -
                 # look for a RelatedFields entry in search_fields that corresponds to this relation.
                 for search_field in search_fields:
@@ -169,6 +196,18 @@ class BaseSearchQueryCompiler:
                                 search_fields = search_field.fields
                                 path.append(search_field)
                                 break
+                        elif column.target == field.path_infos[1].join_field:
+                            for sub_field in search_field.fields:
+                                if isinstance(sub_field, FilterField) and (
+                                    sub_field.get_attname(field.related_model)
+                                    in (
+                                        column.target.target_field.attname,
+                                        column.target.attname,
+                                    )
+                                ):
+                                    path.append(search_field)
+                                    path.append(sub_field)
+                                    return path
 
                 else:
                     # no matching RelatedFields entry found

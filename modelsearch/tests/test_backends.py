@@ -910,6 +910,49 @@ class BackendTests(BackendTestSetupMixin):
             ["Bilbo Baggins"],
         )
 
+    def test_filter_on_many_to_many_field(self):
+        tolkien = models.Author.objects.get(name="J. R. R. Tolkien")
+        asimov = models.Author.objects.get(name="Isaac Asimov")
+
+        results = list(
+            self.backend.search(
+                "hobbit",
+                models.Book.objects.filter(authors=tolkien),
+            )
+        )
+        self.assertCountEqual(
+            [r.title for r in results],
+            ["The Hobbit"],
+        )
+
+        results = list(
+            self.backend.search(
+                "hobbit",
+                models.Book.objects.filter(authors=asimov),
+            )
+        )
+        self.assertCountEqual(
+            [r.title for r in results],
+            [],
+        )
+
+        results = list(
+            self.backend.search(
+                MATCH_ALL,
+                models.Book.objects.filter(authors__in=[tolkien, asimov]),
+            )
+        )
+        self.assertCountEqual(
+            [r.title for r in results],
+            [
+                "The Hobbit",
+                "The Fellowship of the Ring",
+                "The Two Towers",
+                "The Return of the King",
+                "Foundation",
+            ],
+        )
+
     def test_filter_on_related_fields_forward_many_to_many(self):
         results = list(
             self.backend.search(
